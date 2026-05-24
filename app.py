@@ -118,27 +118,23 @@ def render_progress():
         st.info("点击侧边栏 🚀 启动搜索 开始探索")
         return
 
-    if not holder["done"]:
-        st.info("⏳ 搜索运行中，进度每 2 秒自动刷新...")
-        for msg in holder["messages"]:
-            st.write(msg)
-        time.sleep(2)
-        st.rerun()
-
     if holder["error"]:
         st.error(f"运行出错: {holder['error']}")
         return
 
-    st.success("✅ 搜索完成！切换到「📋 推荐结果」查看")
-    for msg in holder["messages"]:
-        st.write(msg)
-
-    if holder["output"]:
-        st.session_state.output = holder["output"]
-        st.session_state.pipeline_holder = None
+    if holder["done"] and holder["output"]:
+        st.success("✅ 搜索完成！切换到「📋 推荐结果」查看")
+        for msg in holder["messages"]:
+            st.write(msg)
         st.caption(
             f"总耗时: {holder['output'].total_elapsed_seconds:.0f}s"
         )
+        return
+
+    # Still running — show current progress
+    st.info("⏳ 搜索运行中，进度每 2 秒自动刷新...")
+    for msg in holder["messages"]:
+        st.write(msg)
 
 
 def render_results():
@@ -279,6 +275,20 @@ def render_export():
 
 def main():
     init_session()
+
+    # --- auto-refresh: if pipeline is running, poll every 2s ---
+    holder = st.session_state.pipeline_holder
+    if holder is not None and not holder["done"]:
+        if holder["error"]:
+            st.session_state.pipeline_holder = None
+            st.rerun()
+        time.sleep(2)
+        st.rerun()
+
+    # --- pipeline just finished — transfer output to session state ---
+    if holder is not None and holder["done"] and holder["output"]:
+        st.session_state.output = holder["output"]
+        st.session_state.pipeline_holder = None
 
     st.title("🔍 InstaChef SKU Explorer")
     st.caption("智能选品探索工具 · Generator → Evaluator 双 Agent 循环")
