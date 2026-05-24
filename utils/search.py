@@ -1,12 +1,12 @@
 import os
 
 CUSINE_EN_MAP = {
-    "中式": "Chinese",
-    "日式": "Japanese",
-    "韩式": "Korean",
-    "泰式": "Thai",
-    "新马": "Singaporean Malay",
-    "墨西哥": "Mexican",
+    "Chinese": "Chinese",
+    "Japanese": "Japanese",
+    "Korean": "Korean",
+    "Thai": "Thai",
+    "Singaporean/Malay": "Singaporean Malay",
+    "Mexican": "Mexican",
 }
 
 

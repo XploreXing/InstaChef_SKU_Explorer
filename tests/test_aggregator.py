@@ -20,8 +20,8 @@ def _make_eval(proposal, score, passed=True):
 
 
 def test_deduplicate_same_name():
-    p1 = _make_proposal(1, "Chicken Burrito Bowl", "墨西哥")
-    p2 = _make_proposal(2, "Chicken Burrito Bowl", "墨西哥")
+    p1 = _make_proposal(1, "Chicken Burrito Bowl", "Mexican")
+    p2 = _make_proposal(2, "Chicken Burrito Bowl", "Mexican")
     e1 = _make_eval(p1, 90)
     e2 = _make_eval(p2, 85)
     result = Aggregator.deduplicate([e1, e2])
@@ -29,8 +29,8 @@ def test_deduplicate_same_name():
 
 
 def test_deduplicate_different_name_keeps_both():
-    p1 = _make_proposal(1, "Chicken Burrito Bowl", "墨西哥")
-    p2 = _make_proposal(2, "Beef Burrito Bowl", "墨西哥")
+    p1 = _make_proposal(1, "Chicken Burrito Bowl", "Mexican")
+    p2 = _make_proposal(2, "Beef Burrito Bowl", "Mexican")
     e1 = _make_eval(p1, 90)
     e2 = _make_eval(p2, 85)
     result = Aggregator.deduplicate([e1, e2])
@@ -38,9 +38,9 @@ def test_deduplicate_different_name_keeps_both():
 
 
 def test_sort_by_score_desc():
-    p1 = _make_proposal(1, "A", "中式")
-    p2 = _make_proposal(2, "B", "中式")
-    p3 = _make_proposal(3, "C", "中式")
+    p1 = _make_proposal(1, "A", "Chinese")
+    p2 = _make_proposal(2, "B", "Chinese")
+    p3 = _make_proposal(3, "C", "Chinese")
     evals = [
         _make_eval(p2, 82),
         _make_eval(p1, 95),

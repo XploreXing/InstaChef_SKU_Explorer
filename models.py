@@ -80,4 +80,4 @@ class ProcessedCommodity:
     id: int
     name: str
     description: str
-    cuisine_type: str          # 中式/日式/韩式/泰式/新马/墨西哥/其他
+    cuisine_type: str          # Chinese/Japanese/Korean/Thai/Singaporean-Malay/Mexican/Other

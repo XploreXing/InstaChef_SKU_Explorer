@@ -35,8 +35,8 @@ def render_control_panel():
 
         cuisines = st.multiselect(
             "选择菜系",
-            options=["中式", "日式", "韩式", "泰式", "新马", "墨西哥"],
-            default=["墨西哥"],
+            options=["Chinese", "Japanese", "Korean", "Thai", "Singaporean/Malay", "Mexican"],
+            default=["Mexican"],
         )
 
         with st.expander("⚡ 高级参数"):

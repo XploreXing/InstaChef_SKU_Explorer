@@ -9,7 +9,7 @@ def test_dish_proposal_creation():
     p = DishProposal(
         id=1,
         name="Chicken Burrito Bowl",
-        cuisine="墨西哥",
+        cuisine="Mexican",
         price_sgd=7.50,
         description="Test description",
         differentiation="Test differentiation",
@@ -17,11 +17,11 @@ def test_dish_proposal_creation():
     )
     assert p.id == 1
     assert p.name == "Chicken Burrito Bowl"
-    assert p.cuisine == "墨西哥"
+    assert p.cuisine == "Mexican"
 
 
 def test_evaluation_result_passed():
-    p = DishProposal(1, "Test", "中式", 5.0, "desc", "diff", "source")
+    p = DishProposal(1, "Test", "Chinese", 5.0, "desc", "diff", "source")
     e = EvaluationResult(
         proposal=p,
         vetoed=False,
@@ -38,7 +38,7 @@ def test_evaluation_result_passed():
 
 
 def test_evaluation_result_vetoed():
-    p = DishProposal(2, "Fried Chicken", "中式", 5.0, "desc", "diff", "source")
+    p = DishProposal(2, "Fried Chicken", "Chinese", 5.0, "desc", "diff", "source")
     e = EvaluationResult(
         proposal=p,
         vetoed=True,
@@ -56,7 +56,7 @@ def test_evaluation_result_vetoed():
 
 def test_round_result():
     rr = RoundResult(
-        cuisine="中式",
+        cuisine="Chinese",
         round_num=1,
         proposals_generated=15,
         passed_count=4,
@@ -72,12 +72,12 @@ def test_round_result():
 
 def test_cuisine_result():
     cr = CuisineResult(
-        cuisine="中式",
+        cuisine="Chinese",
         total_rounds=2,
         locked=[],
         rounds_history=[],
     )
-    assert cr.cuisine == "中式"
+    assert cr.cuisine == "Chinese"
     assert cr.total_rounds == 2
 
 
@@ -106,6 +106,6 @@ def test_raw_commodity_from_csv():
 def test_processed_commodity():
     c = ProcessedCommodity(
         id=94, name="Kimchi Fried Rice", description="Bold Korean flavors",
-        cuisine_type="韩式",
+        cuisine_type="Korean",
     )
-    assert c.cuisine_type == "韩式"
+    assert c.cuisine_type == "Korean"

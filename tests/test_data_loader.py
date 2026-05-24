@@ -70,19 +70,19 @@ def test_get_by_cuisine_with_processed():
 
     loader = SKUDataLoader.__new__(SKUDataLoader)
     loader._commodities = [
-        ProcessedCommodity(1, "A", "", "中式"),
-        ProcessedCommodity(2, "B", "", "中式"),
-        ProcessedCommodity(3, "C", "", "日式"),
-        ProcessedCommodity(4, "D", "", "韩式"),
+        ProcessedCommodity(1, "A", "", "Chinese"),
+        ProcessedCommodity(2, "B", "", "Chinese"),
+        ProcessedCommodity(3, "C", "", "Japanese"),
+        ProcessedCommodity(4, "D", "", "Korean"),
     ]
 
-    chinese = loader.get_by_cuisine("中式")
+    chinese = loader.get_by_cuisine("Chinese")
     assert len(chinese) == 2
 
-    japanese = loader.get_by_cuisine("日式")
+    japanese = loader.get_by_cuisine("Japanese")
     assert len(japanese) == 1
 
-    mexican = loader.get_by_cuisine("墨西哥")
+    mexican = loader.get_by_cuisine("Mexican")
     assert len(mexican) == 0
 
 
@@ -91,14 +91,14 @@ def test_get_cuisine_counts():
 
     loader = SKUDataLoader.__new__(SKUDataLoader)
     loader._commodities = [
-        ProcessedCommodity(1, "A", "", "中式"),
-        ProcessedCommodity(2, "B", "", "中式"),
-        ProcessedCommodity(3, "C", "", "日式"),
+        ProcessedCommodity(1, "A", "", "Chinese"),
+        ProcessedCommodity(2, "B", "", "Chinese"),
+        ProcessedCommodity(3, "C", "", "Japanese"),
     ]
 
     counts = loader.get_cuisine_counts()
-    assert counts["中式"] == 2
-    assert counts["日式"] == 1
+    assert counts["Chinese"] == 2
+    assert counts["Japanese"] == 1
 
 
 def test_unsupported_source_raises():

@@ -6,12 +6,12 @@ def test_build_evaluator_message():
     from models import ProcessedCommodity
 
     proposals = [
-        {"name": "Chicken Burrito Bowl", "cuisine": "墨西哥"},
+        {"name": "Chicken Burrito Bowl", "cuisine": "Mexican"},
     ]
     existing_skus = [
         ProcessedCommodity(
             id=93, name="Chee Cheong Fun", description="",
-            cuisine_type="中式",
+            cuisine_type="Chinese",
         ),
     ]
     msg = build_evaluator_user_message(
@@ -32,7 +32,7 @@ def test_parse_evaluator_response_valid():
     response = json.dumps({
         "evaluations": [
             {
-                "id": 1, "name": "Test Dish", "cuisine": "中式",
+                "id": 1, "name": "Test Dish", "cuisine": "Chinese",
                 "hard_constraints": {
                     "halal": {"pass": True, "note": "ok"},
                     "no_fried": {"pass": True, "note": "ok"},
@@ -65,7 +65,7 @@ def test_parse_evaluator_response_vetoed():
     response = json.dumps({
         "evaluations": [
             {
-                "id": 1, "name": "Fried Chicken Rice", "cuisine": "韩式",
+                "id": 1, "name": "Fried Chicken Rice", "cuisine": "Korean",
                 "hard_constraints": {
                     "halal": {"pass": True, "note": "ok"},
                     "no_fried": {"pass": False, "note": "Deep-fried chicken"},

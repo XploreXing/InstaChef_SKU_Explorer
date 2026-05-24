@@ -4,14 +4,14 @@ from agents.generator import GeneratorAgent, build_generator_user_message
 
 def test_build_user_message_first_round():
     msg = build_generator_user_message(
-        cuisine="墨西哥",
+        cuisine="Mexican",
         count=7,
         search_summary="Market research results here.",
         feedback="",
         locked_names=[],
         round_num=1,
     )
-    assert "墨西哥" in msg
+    assert "Mexican" in msg
     assert "Market research results here" in msg
     assert "FIRST ROUND" in msg
     assert "Generate 7" in msg
@@ -19,7 +19,7 @@ def test_build_user_message_first_round():
 
 def test_build_user_message_with_feedback():
     msg = build_generator_user_message(
-        cuisine="日式",
+        cuisine="Japanese",
         count=5,
         search_summary="Trend data.",
         feedback="Avoid teriyaki. Focus on curry and omurice.",
@@ -38,7 +38,7 @@ def test_parse_generator_response_valid():
         "proposals": [
             {
                 "name": "Chicken Burrito Bowl",
-                "cuisine": "墨西哥",
+                "cuisine": "Mexican",
                 "price_sgd": 7.50,
                 "description": "Test desc",
                 "differentiation": "Test diff",

@@ -151,18 +151,18 @@ class SKUDataLoader:
 
 For each commodity, classify its cuisine_type based on its name and description.
 
-Choose ONE from [中式, 日式, 韩式, 泰式, 新马, 墨西哥, 其他]:
+Choose ONE from [Chinese, Japanese, Korean, Thai, Singaporean/Malay, Mexican, Other]:
 
-- 中式: Chinese dishes (fried rice, noodles, braised, mapo, kung pao, dim sum, claypot, Hokkien mee, carrot cake, chee cheong fun, etc.)
-- 日式: Japanese dishes (teriyaki, udon, ramen, soba, gyudon, sushi, miso, oyakodon, etc.)
-- 韩式: Korean dishes (kimchi, bulgogi, bibimbap, tteokbokki, jjigae, Korean army stew, etc.)
-- 泰式: Thai dishes (tom yum, green/red curry, pad thai, Thai basil, massaman, etc.)
-- 新马: Singaporean/Malaysian/Indonesian (laksa, nasi lemak, rendang, sambal, mee goreng, mee rebus, otah, briyani, etc.)
-- 墨西哥: Mexican dishes (burrito, taco, chipotle, fajita, etc.)
-- 其他: Italian pasta, Western, Indian, fusion, salads, desserts, sandwiches, etc.
+- Chinese: Chinese dishes (fried rice, noodles, braised, mapo, kung pao, dim sum, claypot, Hokkien mee, carrot cake, chee cheong fun, etc.)
+- Japanese: Japanese dishes (teriyaki, udon, ramen, soba, gyudon, sushi, miso, oyakodon, etc.)
+- Korean: Korean dishes (kimchi, bulgogi, bibimbap, tteokbokki, jjigae, Korean army stew, etc.)
+- Thai: Thai dishes (tom yum, green/red curry, pad thai, Thai basil, massaman, etc.)
+- Singaporean/Malay: Singaporean/Malaysian/Indonesian (laksa, nasi lemak, rendang, sambal, mee goreng, mee rebus, otah, briyani, etc.)
+- Mexican: Mexican dishes (burrito, taco, chipotle, fajita, etc.)
+- Other: Italian pasta, Western, Indian, fusion, salads, desserts, sandwiches, etc.
 
 Return ONLY valid JSON:
-{"commodities": [{"id": 94, "cuisine_type": "韩式"}, {"id": 218, "cuisine_type": "其他"}]}"""
+{"commodities": [{"id": 94, "cuisine_type": "Korean"}, {"id": 218, "cuisine_type": "Other"}]}"""
 
         user_message = json.dumps(items, ensure_ascii=False)
 
@@ -170,7 +170,7 @@ Return ONLY valid JSON:
             client = self._get_llm_client()
             cfg = self.config["llm"]
             response = client.chat.completions.create(
-                model=cfg.get("evaluator_model", cfg.get("generator_model")),
+                model=cfg.get("enrichment_model", cfg.get("evaluator_model", cfg.get("generator_model"))),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
@@ -186,7 +186,7 @@ Return ONLY valid JSON:
             print(f"LLM tagging failed for batch: {e}")
             # Fallback: mark all as 其他
             tagged_list = [
-                {"id": c.id, "cuisine_type": "其他"}
+                {"id": c.id, "cuisine_type": "Other"}
                 for c in batch
             ]
 
@@ -195,7 +195,7 @@ Return ONLY valid JSON:
 
         results = []
         for c in batch:
-            t = tag_lookup.get(c.id, {"cuisine_type": "其他"})
+            t = tag_lookup.get(c.id, {"cuisine_type": "Other"})
             results.append(ProcessedCommodity(
                 id=c.id,
                 name=c.name,

@@ -46,7 +46,7 @@ def test_data_loader_integration():
     counts = loader.get_cuisine_counts()
     assert isinstance(counts, dict)
 
-    for cuisine in ["中式", "日式", "韩式", "泰式", "新马", "墨西哥"]:
+    for cuisine in ["Chinese", "Japanese", "Korean", "Thai", "Singaporean/Malay", "Mexican"]:
         cuisine_skus = loader.get_by_cuisine(cuisine)
         assert isinstance(cuisine_skus, list)
 
@@ -61,7 +61,7 @@ def test_search_query_building_integration():
 
     searcher = FoodTrendSearcher(config)
 
-    for cuisine in ["中式", "日式", "韩式", "泰式", "新马", "墨西哥"]:
+    for cuisine in ["Chinese", "Japanese", "Korean", "Thai", "Singaporean/Malay", "Mexican"]:
         queries = searcher.build_queries(cuisine)
         assert len(queries) > 0
         for q in queries:
@@ -74,9 +74,9 @@ def test_aggregator_full_flow():
     from models import DishProposal, EvaluationResult, FinalOutput, CuisineResult
     from utils.aggregator import Aggregator
 
-    p1 = DishProposal(1, "Dish A", "中式", 5.0, "d", "d", "s")
-    p2 = DishProposal(2, "Dish B", "中式", 6.0, "d", "d", "s")
-    p3 = DishProposal(3, "Dish A", "中式", 5.0, "d", "d", "s")  # duplicate name
+    p1 = DishProposal(1, "Dish A", "Chinese", 5.0, "d", "d", "s")
+    p2 = DishProposal(2, "Dish B", "Chinese", 6.0, "d", "d", "s")
+    p3 = DishProposal(3, "Dish A", "Chinese", 5.0, "d", "d", "s")  # duplicate name
 
     def make_eval(p, score):
         return EvaluationResult(
@@ -101,14 +101,14 @@ def test_aggregator_full_flow():
     }
     agg = Aggregator(config)
 
-    cr = CuisineResult("中式", 1, sorted_evals, [])
-    output = FinalOutput("2026-05-24", {"中式": cr}, 30.0)
+    cr = CuisineResult("Chinese", 1, sorted_evals, [])
+    output = FinalOutput("2026-05-24", {"Chinese": cr}, 30.0)
     filepath = agg.write_output(output)
 
     assert os.path.exists(filepath)
     with open(filepath) as f:
         data = json.load(f)
-    assert "中式" in data["cuisines"]
-    assert len(data["cuisines"]["中式"]["locked"]) == 2
+    assert "Chinese" in data["cuisines"]
+    assert len(data["cuisines"]["Chinese"]["locked"]) == 2
 
     os.unlink(filepath)
