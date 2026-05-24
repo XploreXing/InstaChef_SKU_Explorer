@@ -85,6 +85,7 @@ class EvaluatorAgent:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=self.cfg["evaluator_temperature"],
+                max_tokens=8192,
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content

@@ -83,6 +83,7 @@ class GeneratorAgent:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=self.cfg["generator_temperature"],
+                max_tokens=4096,
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
