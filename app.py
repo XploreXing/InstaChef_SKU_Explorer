@@ -283,14 +283,7 @@ def render_export():
 def main():
     init_session()
 
-    # --- auto-refresh: if pipeline is running, poll every 2s ---
     holder = st.session_state.pipeline_holder
-    if holder is not None and not holder["done"]:
-        if holder["error"]:
-            st.session_state.pipeline_holder = None
-            st.rerun()
-        time.sleep(2)
-        st.rerun()
 
     # --- pipeline just finished — transfer output to session state ---
     if holder is not None and holder["done"] and holder["output"]:
@@ -316,6 +309,14 @@ def main():
         render_results()
     with tab3:
         render_export()
+
+    # --- auto-refresh: poll AFTER rendering UI so user sees progress ---
+    if holder is not None and not holder["done"]:
+        if holder.get("error"):
+            st.session_state.pipeline_holder = None
+            st.rerun()
+        time.sleep(2)
+        st.rerun()
 
 
 if __name__ == "__main__":
