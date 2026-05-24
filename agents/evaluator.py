@@ -19,11 +19,10 @@ def _load_system_prompt() -> str:
 
 
 def _serialize_commodities(commodities) -> list[dict]:
+    """Serialize commodities for Evaluator prompt.
+    Only essential fields — full descriptions cause token overflow on 137 SKUs."""
     return [
-        {
-            "id": c.id, "name": c.name, "description": c.description,
-            "cuisine_type": c.cuisine_type,
-        }
+        {"id": c.id, "name": c.name, "cuisine_type": c.cuisine_type}
         for c in commodities
     ]
 
