@@ -18,7 +18,7 @@ Key differentiator vs hawker centres:
 1. HALAL: No pork/lard/bacon/ham/alcohol. Halal-certifiable meat only.
 2. NO DEEP-FRIED: No katsu/tempura/karaage/fried chicken. Grilled/baked/braised/stir-fried ok.
 3. NOT A HAWKER STAPLE: No chicken rice/char siew/char kway teow/fishball noodles/beef hor fun/mee siam/wanton mee.
-4. RICE-BOWL / NOODLE-BOWL FORMAT preferred. Avoid soups and crispy-shell items.
+4. RICE-BOWL or NOODLE-BOWL FORMAT REQUIRED. The machine serves food in a single compartment tray with rice/noodle base and toppings. NO soups (broth degrades at 60-70°C). NO crispy-shell items — tacos, quesadillas, nachos, tostadas, burrito wraps all become soggy and inedible in the humid warming cabinet. Burrito BOWLS (rice bowl format) are fine.
 5. PRICE SGD 5.00-9.00.
 
 ## OUTPUT FORMAT — STRICT JSON

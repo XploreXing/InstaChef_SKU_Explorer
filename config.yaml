@@ -16,7 +16,7 @@ search:
   api_key_env: "TAVILY_API_KEY"
   max_results_per_query: 5
   region: "sg"
-  time_range: "3m"
+  time_range: "month"
   target_domains:
     - "foodpanda.sg"
     - "grabfood.sg"
