@@ -1,4 +1,6 @@
 import sys
+import time
+import threading
 from pathlib import Path
 import pandas as pd
 import streamlit as st
@@ -6,7 +8,6 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent))
 
 from orchestrator import Orchestrator
-from models import CuisineResult, RoundResult
 
 st.set_page_config(
     page_title="InstaChef SKU Explorer",
@@ -17,12 +18,11 @@ st.set_page_config(
 
 def init_session():
     defaults = {
-        "orchestrator": None,
         "output": None,
         "adopted": set(),
         "rejected": set(),
-        "running": False,
-        "progress_messages": [],
+        "pipeline_thread": None,
+        "pipeline_holder": None,  # {"done": bool, "messages": list, "output": Optional, "error": Optional}
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -40,38 +40,64 @@ def render_control_panel():
         )
 
         with st.expander("⚡ 高级参数"):
-            target = st.slider("目标数/菜系", 1, 20, 10)
-            threshold = st.slider("及格线", 50, 100, 80)
-            max_rounds = st.slider("最大轮数", 1, 5, 3)
+            st.slider("目标数/菜系", 1, 20, 10, key="target")
+            st.slider("及格线", 50, 100, 80, key="threshold")
+            st.slider("最大轮数", 1, 5, 3, key="max_rounds")
 
-        if st.button("🚀 启动搜索", type="primary", use_container_width=True):
-            st.session_state.running = True
-            st.session_state.progress_messages = []
+        running = (
+            st.session_state.pipeline_holder is not None
+            and not st.session_state.pipeline_holder["done"]
+        )
+        if st.button(
+            "🚀 启动搜索" if not running else "⏳ 搜索中...",
+            type="primary",
+            use_container_width=True,
+            disabled=running,
+        ):
+            st.session_state.adopted = set()
+            st.session_state.rejected = set()
+            st.session_state.pipeline_holder = {
+                "done": False,
+                "messages": [],
+                "output": None,
+                "error": None,
+            }
 
-            orch = Orchestrator("config.yaml")
-            orch.load_skus()
+            def run_pipeline():
+                try:
+                    orch = Orchestrator("config.yaml")
+                    orch.load_skus()
 
-            orch.state_callbacks["on_state_change"].append(
-                lambda c, r, p, m: st.session_state.progress_messages.append(
-                    f"🔍 **{c}** · Round {r} · `{p}` · 已锁定 {m.get('locked_count', 0)}/{m.get('remaining', 10) + m.get('locked_count', 0)}"
-                )
-            )
-            orch.state_callbacks["on_round_complete"].append(
-                lambda res: st.session_state.progress_messages.append(
-                    f"✅ **{res.cuisine}** Round {res.round_num}: "
-                    f"生成 {res.proposals_generated} → "
-                    f"✅{res.passed_count} / ❌{res.rejected_count} "
-                    f"({res.elapsed_seconds:.1f}s)"
-                )
-            )
+                    orch.state_callbacks["on_state_change"].append(
+                        lambda c, r, p, m: st.session_state.pipeline_holder[
+                            "messages"
+                        ].append(
+                            f"🔍 **{c}** · Round {r} · `{p}` · "
+                            f"已锁定 {m.get('locked_count', 0)}/"
+                            f"{m.get('remaining', 10) + m.get('locked_count', 0)}"
+                        )
+                    )
+                    orch.state_callbacks["on_round_complete"].append(
+                        lambda res: st.session_state.pipeline_holder[
+                            "messages"
+                        ].append(
+                            f"✅ **{res.cuisine}** Round {res.round_num}: "
+                            f"生成 {res.proposals_generated} → "
+                            f"✅{res.passed_count} / ❌{res.rejected_count} "
+                            f"({res.elapsed_seconds:.1f}s)"
+                        )
+                    )
 
-            try:
-                output = orch.run(cuisines)
-                st.session_state.output = output
-            except Exception as e:
-                st.error(f"运行出错: {e}")
-            finally:
-                st.session_state.running = False
+                    st.session_state.pipeline_holder["output"] = orch.run(cuisines)
+                except Exception as e:
+                    st.session_state.pipeline_holder["error"] = str(e)
+                finally:
+                    st.session_state.pipeline_holder["done"] = True
+
+            thread = threading.Thread(target=run_pipeline, daemon=True)
+            st.session_state.pipeline_thread = thread
+            thread.start()
+            st.rerun()
 
         st.divider()
 
@@ -86,10 +112,33 @@ def render_control_panel():
 
 
 def render_progress():
-    for msg in st.session_state.progress_messages:
+    holder = st.session_state.pipeline_holder
+
+    if holder is None:
+        st.info("点击侧边栏 🚀 启动搜索 开始探索")
+        return
+
+    if not holder["done"]:
+        st.info("⏳ 搜索运行中，进度每 2 秒自动刷新...")
+        for msg in holder["messages"]:
+            st.write(msg)
+        time.sleep(2)
+        st.rerun()
+
+    if holder["error"]:
+        st.error(f"运行出错: {holder['error']}")
+        return
+
+    st.success("✅ 搜索完成！切换到「📋 推荐结果」查看")
+    for msg in holder["messages"]:
         st.write(msg)
-    if st.session_state.running:
-        st.spinner("搜索中...")
+
+    if holder["output"]:
+        st.session_state.output = holder["output"]
+        st.session_state.pipeline_holder = None
+        st.caption(
+            f"总耗时: {holder['output'].total_elapsed_seconds:.0f}s"
+        )
 
 
 def render_results():
@@ -152,9 +201,10 @@ def render_results():
     col1, col2, col3 = st.columns(3)
     col1.metric("✅ 已采纳", len(st.session_state.adopted))
     col2.metric("📋 备选", len(st.session_state.rejected))
-    col3.metric("⏳ 未处理",
-                len(all_evals) - len(st.session_state.adopted)
-                - len(st.session_state.rejected))
+    col3.metric(
+        "⏳ 未处理",
+        len(all_evals) - len(st.session_state.adopted) - len(st.session_state.rejected),
+    )
 
 
 def render_export():
@@ -173,17 +223,21 @@ def render_export():
     with col1:
         st.subheader("✅ 采纳清单")
         adopted_items = [
-            e for e in all_evals
-            if e.proposal.name in st.session_state.adopted
+            e for e in all_evals if e.proposal.name in st.session_state.adopted
         ]
         if adopted_items:
-            adopted_df = pd.DataFrame([{
-                "菜品": e.proposal.name,
-                "菜系": e.proposal.cuisine,
-                "建议售价": f"SGD {e.proposal.price_sgd:.2f}",
-                "总分": f"{e.total_score:.1f}",
-                "差异化理由": e.proposal.differentiation,
-            } for e in adopted_items])
+            adopted_df = pd.DataFrame(
+                [
+                    {
+                        "菜品": e.proposal.name,
+                        "菜系": e.proposal.cuisine,
+                        "建议售价": f"SGD {e.proposal.price_sgd:.2f}",
+                        "总分": f"{e.total_score:.1f}",
+                        "差异化理由": e.proposal.differentiation,
+                    }
+                    for e in adopted_items
+                ]
+            )
             st.dataframe(adopted_df, hide_index=True)
 
             csv = adopted_df.to_csv(index=False)
@@ -199,15 +253,19 @@ def render_export():
     with col2:
         st.subheader("📋 备选清单")
         rejected_items = [
-            e for e in all_evals
-            if e.proposal.name in st.session_state.rejected
+            e for e in all_evals if e.proposal.name in st.session_state.rejected
         ]
         if rejected_items:
-            rejected_df = pd.DataFrame([{
-                "菜品": e.proposal.name,
-                "菜系": e.proposal.cuisine,
-                "总分": f"{e.total_score:.1f}",
-            } for e in rejected_items])
+            rejected_df = pd.DataFrame(
+                [
+                    {
+                        "菜品": e.proposal.name,
+                        "菜系": e.proposal.cuisine,
+                        "总分": f"{e.total_score:.1f}",
+                    }
+                    for e in rejected_items
+                ]
+            )
             st.dataframe(rejected_df, hide_index=True)
 
             csv = rejected_df.to_csv(index=False)
@@ -227,11 +285,13 @@ def main():
 
     render_control_panel()
 
-    tab1, tab2, tab3 = st.tabs([
-        "🔍 搜索进度",
-        "📋 推荐结果",
-        "📦 导出清单",
-    ])
+    tab1, tab2, tab3 = st.tabs(
+        [
+            "🔍 搜索进度",
+            "📋 推荐结果",
+            "📦 导出清单",
+        ]
+    )
 
     with tab1:
         render_progress()
