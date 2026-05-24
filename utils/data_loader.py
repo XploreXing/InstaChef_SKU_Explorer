@@ -83,9 +83,35 @@ For each commodity, classify 3 tags based on its name and description:
    - 墨西哥: Mexican dishes (burrito, taco, chipotle, fajita, etc.)
    - 其他: Does not clearly fit any above (Italian pasta, Western, Indian, fusion, salads, desserts, sandwiches, etc.)
 
-2. is_halal_suspect: true if name/description suggests pork, lard, bacon, ham (from pork), alcohol (mirin, cooking wine, beer), or traditionally pork-based dishes. Chicken/turkey ham or bacon is NOT suspect. false otherwise.
+2. is_halal_suspect: Mark true ONLY if name/description contains EXPLICIT pork/lard/alcohol references.
 
-3. is_fried: true if deep-fried (katsu, tempura, karaage, fried chicken, ayam penyet, fish & chips, deep-fried cutlets). Stir-fried (炒) is NOT deep-fried. false otherwise.
+   In Singapore context:
+   - "Hainanese" alone is NOT suspect — many Hainanese dishes use chicken (e.g. Hainanese chicken rice)
+   - "Yam Cake", "Carrot Cake", "Turnip Cake" are vegetable-based — NOT suspect
+   - "Bacon" without "turkey" or "chicken" qualifier IS suspect
+   - "Ham" without "chicken" or "turkey" qualifier IS suspect
+
+   Explicit pork indicators: "pork", "豚"(buta), "猪", "lard", "char siew" (叉烧= pork), "sausage" without chicken/turkey qualifier, "bangers" (British pork sausages), "Spam", "bacon" (unless chicken/turkey), "ham" (unless chicken/turkey), "prosciutto", "pancetta"
+
+   Alcohol indicators: "mirin", "sake", "cooking wine", "啤酒(beer)", "红酒(red wine)", "米酒". "料酒" when used as cooking wine IS suspect.
+
+   false otherwise.
+
+3. is_fried: CRITICAL — you MUST distinguish deep-fried (炸) from stir-fried/wok-fried (炒).
+
+   In Singapore hawker and local food culture, dishes with "Fried" in the name are almost always STIR-FRIED (wok-fried), NOT deep-fried. Examples:
+   - "Fried Carrot Cake" = 炒萝卜糕, wok-fried radish cake — NOT deep-fried
+   - "Fried Hokkien Prawn Noodles" = 炒福建虾面, wok-fried — NOT deep-fried
+   - "Fried Rice" (炒饭), "Fried Noodles" (炒面), "Fried Udon" (炒乌冬) — all wok-fried
+   - "Char Kway Teow" = 炒粿条, wok-fried flat noodles — NOT deep-fried
+
+   Only mark is_fried=true for genuinely DEEP-FRIED items where food is submerged in hot oil:
+   - Katsu, tempura, karaage, tonkatsu (deep-fried cutlets)
+   - Fried chicken wings, chicken chop (deep-fried), ayam penyet, fish & chips
+   - Ebi fry, croquette, korokke
+   - Items explicitly described as "deep-fried", "crispy fried", "breaded and fried", "battered"
+
+   If the cooking method is unclear from name alone, default to false.
 
 Return ONLY valid JSON:
 {"commodities": [{"id": 94, "cuisine_type": "韩式", "is_halal_suspect": false, "is_fried": false}, ...]}"""
