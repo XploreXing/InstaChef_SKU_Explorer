@@ -23,8 +23,6 @@ def _serialize_commodities(commodities) -> list[dict]:
         {
             "id": c.id, "name": c.name, "description": c.description,
             "cuisine_type": c.cuisine_type,
-            "is_halal_suspect": c.is_halal_suspect,
-            "is_fried": c.is_fried,
         }
         for c in commodities
     ]

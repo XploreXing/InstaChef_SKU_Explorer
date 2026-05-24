@@ -81,5 +81,3 @@ class ProcessedCommodity:
     name: str
     description: str
     cuisine_type: str          # 中式/日式/韩式/泰式/新马/墨西哥/其他
-    is_halal_suspect: bool     # True if name/desc suggests pork/lard/alcohol
-    is_fried: bool             # True if name/desc suggests deep-fried

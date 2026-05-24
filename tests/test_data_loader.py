@@ -70,10 +70,10 @@ def test_get_by_cuisine_with_processed():
 
     loader = SKUDataLoader.__new__(SKUDataLoader)
     loader._commodities = [
-        ProcessedCommodity(1, "A", "", "中式", False, False),
-        ProcessedCommodity(2, "B", "", "中式", False, False),
-        ProcessedCommodity(3, "C", "", "日式", False, False),
-        ProcessedCommodity(4, "D", "", "韩式", True, False),
+        ProcessedCommodity(1, "A", "", "中式"),
+        ProcessedCommodity(2, "B", "", "中式"),
+        ProcessedCommodity(3, "C", "", "日式"),
+        ProcessedCommodity(4, "D", "", "韩式"),
     ]
 
     chinese = loader.get_by_cuisine("中式")
@@ -86,43 +86,14 @@ def test_get_by_cuisine_with_processed():
     assert len(mexican) == 0
 
 
-def test_get_halal_suspects():
-    from models import ProcessedCommodity
-
-    loader = SKUDataLoader.__new__(SKUDataLoader)
-    loader._commodities = [
-        ProcessedCommodity(1, "A", "", "中式", False, False),
-        ProcessedCommodity(2, "B", "", "新马", True, False),
-        ProcessedCommodity(3, "C", "", "日式", False, True),
-    ]
-
-    suspects = loader.get_halal_suspects()
-    assert len(suspects) == 1
-    assert suspects[0].name == "B"
-
-
-def test_get_fried_items():
-    from models import ProcessedCommodity
-
-    loader = SKUDataLoader.__new__(SKUDataLoader)
-    loader._commodities = [
-        ProcessedCommodity(1, "A", "", "中式", False, False),
-        ProcessedCommodity(2, "B", "", "日式", False, True),
-        ProcessedCommodity(3, "C", "", "日式", False, True),
-    ]
-
-    fried = loader.get_fried_items()
-    assert len(fried) == 2
-
-
 def test_get_cuisine_counts():
     from models import ProcessedCommodity
 
     loader = SKUDataLoader.__new__(SKUDataLoader)
     loader._commodities = [
-        ProcessedCommodity(1, "A", "", "中式", False, False),
-        ProcessedCommodity(2, "B", "", "中式", False, False),
-        ProcessedCommodity(3, "C", "", "日式", False, False),
+        ProcessedCommodity(1, "A", "", "中式"),
+        ProcessedCommodity(2, "B", "", "中式"),
+        ProcessedCommodity(3, "C", "", "日式"),
     ]
 
     counts = loader.get_cuisine_counts()

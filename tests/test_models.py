@@ -106,25 +106,6 @@ def test_raw_commodity_from_csv():
 def test_processed_commodity():
     c = ProcessedCommodity(
         id=94, name="Kimchi Fried Rice", description="Bold Korean flavors",
-        cuisine_type="韩式", is_halal_suspect=False, is_fried=False,
+        cuisine_type="韩式",
     )
     assert c.cuisine_type == "韩式"
-    assert c.is_halal_suspect is False
-    assert c.is_fried is False
-
-
-def test_processed_commodity_halal_suspect():
-    c = ProcessedCommodity(
-        id=340, name="Hainanese Braised Pork Belly Curry Rice",
-        description="Pork belly curry", cuisine_type="新马",
-        is_halal_suspect=True, is_fried=False,
-    )
-    assert c.is_halal_suspect is True
-
-
-def test_processed_commodity_fried():
-    c = ProcessedCommodity(
-        id=999, name="Chicken Katsu Don", description="Deep fried chicken cutlet",
-        cuisine_type="日式", is_halal_suspect=False, is_fried=True,
-    )
-    assert c.is_fried is True

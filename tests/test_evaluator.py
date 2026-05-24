@@ -11,7 +11,7 @@ def test_build_evaluator_message():
     existing_skus = [
         ProcessedCommodity(
             id=93, name="Chee Cheong Fun", description="",
-            cuisine_type="中式", is_halal_suspect=False, is_fried=False,
+            cuisine_type="中式",
         ),
     ]
     msg = build_evaluator_user_message(
