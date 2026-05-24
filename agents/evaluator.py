@@ -18,16 +18,28 @@ def _load_system_prompt() -> str:
     return EVALUATOR_SYSTEM_PROMPT
 
 
+def _serialize_commodities(commodities) -> list[dict]:
+    return [
+        {
+            "id": c.id, "name": c.name, "description": c.description,
+            "cuisine_type": c.cuisine_type,
+            "is_halal_suspect": c.is_halal_suspect,
+            "is_fried": c.is_fried,
+        }
+        for c in commodities
+    ]
+
+
 def build_evaluator_user_message(
     proposals: list[dict],
-    existing_skus: list[dict],
+    existing_skus: list,
     round_num: int,
     locked_count: int,
     remaining: int,
 ) -> str:
     parts = [
         f"## Current InstaChef SKU Catalog ({len(existing_skus)} total SKUs)",
-        json.dumps(existing_skus, indent=2, ensure_ascii=False),
+        json.dumps(_serialize_commodities(existing_skus), indent=2, ensure_ascii=False),
         "",
         "## Proposals to Evaluate",
         json.dumps(proposals, indent=2, ensure_ascii=False),
@@ -55,7 +67,7 @@ class EvaluatorAgent:
     def evaluate(
         self,
         proposals: list[dict],
-        existing_skus: list[dict],
+        existing_skus: list,
         round_num: int = 1,
         locked_count: int = 0,
         remaining: int = 10,

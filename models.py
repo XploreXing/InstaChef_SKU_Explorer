@@ -64,3 +64,22 @@ class FinalOutput:
     timestamp: str
     cuisines: dict
     total_elapsed_seconds: float
+
+
+@dataclass
+class RawCommodity:
+    """Direct CSV row — weak structured data from Metabase export."""
+    id: int
+    name: str
+    description: str
+
+
+@dataclass
+class ProcessedCommodity:
+    """Enriched commodity with LLM-generated semantic tags."""
+    id: int
+    name: str
+    description: str
+    cuisine_type: str          # 中式/日式/韩式/泰式/新马/墨西哥/其他
+    is_halal_suspect: bool     # True if name/desc suggests pork/lard/alcohol
+    is_fried: bool             # True if name/desc suggests deep-fried

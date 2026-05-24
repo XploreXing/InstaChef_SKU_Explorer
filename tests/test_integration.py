@@ -39,9 +39,9 @@ def test_data_loader_integration():
     assert len(skus) > 0
 
     for s in skus:
-        assert "id" in s
-        assert "name" in s
-        assert "cuisine" in s
+        assert hasattr(s, "id")
+        assert hasattr(s, "name")
+        assert hasattr(s, "cuisine_type")
 
     counts = loader.get_cuisine_counts()
     assert isinstance(counts, dict)

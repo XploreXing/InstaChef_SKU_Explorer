@@ -1,76 +1,140 @@
-import json
 import tempfile
 import os
 from utils.data_loader import SKUDataLoader
 
 
-def test_load_from_json():
-    skus = [
-        {"id": 1, "name": "Test Dish", "cuisine": "中式"},
-        {"id": 2, "name": "Test Dish 2", "cuisine": "日式"},
-    ]
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(skus, f)
+def test_load_csv():
+    """Test CSV parsing (without LLM enrichment — will use fallback)."""
+    csv_content = "id,name,description\n"
+    csv_content += "1,Test Dish A,A test dish description\n"
+    csv_content += "2,Test Dish B,Another test dish\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        f.write(csv_content)
         tmp_path = f.name
 
     try:
-        config = {"data": {"sku_source": "local_json", "sku_json_path": tmp_path}}
+        config = {
+            "data": {"sku_source": "local_csv", "sku_csv_path": tmp_path},
+            "llm": {
+                "base_url": "https://api.siliconflow.cn/v1",
+                "api_key_env": "LLM_API_KEY",
+                "generator_model": "test-model",
+                "evaluator_model": "test-model",
+            },
+        }
         loader = SKUDataLoader(config)
-        result = loader.load()
-        assert len(result) == 2
-        assert result[0]["id"] == 1
-        assert result[1]["cuisine"] == "日式"
+        # Since LLM_API_KEY is not set, _enrich_with_llm will use fallback
+        # First test CSV parsing only:
+        raw = loader._load_csv()
+        assert len(raw) == 2
+        assert raw[0].id == 1
+        assert raw[0].name == "Test Dish A"
+        assert raw[1].id == 2
     finally:
         os.unlink(tmp_path)
 
 
-def test_get_by_cuisine():
-    skus = [
-        {"id": 1, "name": "A", "cuisine": "中式"},
-        {"id": 2, "name": "B", "cuisine": "中式"},
-        {"id": 3, "name": "C", "cuisine": "日式"},
-    ]
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(skus, f)
+def test_load_csv_with_bom():
+    """Test CSV with BOM character."""
+    # Write without BOM in content but using utf-8-sig to add BOM to file
+    csv_content = "id,name,description\n"
+    csv_content += "1,Test Dish,Description\n"
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False,
+                                     encoding="utf-8-sig") as f:
+        f.write(csv_content)
         tmp_path = f.name
 
     try:
-        config = {"data": {"sku_source": "local_json", "sku_json_path": tmp_path}}
+        config = {
+            "data": {"sku_source": "local_csv", "sku_csv_path": tmp_path},
+            "llm": {
+                "base_url": "https://api.example.com/v1",
+                "api_key_env": "LLM_API_KEY",
+                "generator_model": "test",
+                "evaluator_model": "test",
+            },
+        }
         loader = SKUDataLoader(config)
-        loader.load()
-        chinese = loader.get_by_cuisine("中式")
-        assert len(chinese) == 2
-        japanese = loader.get_by_cuisine("日式")
-        assert len(japanese) == 1
-        mexican = loader.get_by_cuisine("墨西哥")
-        assert len(mexican) == 0
+        raw = loader._load_csv()
+        assert len(raw) == 1
+        assert raw[0].name == "Test Dish"
     finally:
         os.unlink(tmp_path)
+
+
+def test_get_by_cuisine_with_processed():
+    """Test filtering by cuisine_type with ProcessedCommodity."""
+    from models import ProcessedCommodity
+
+    loader = SKUDataLoader.__new__(SKUDataLoader)
+    loader._commodities = [
+        ProcessedCommodity(1, "A", "", "中式", False, False),
+        ProcessedCommodity(2, "B", "", "中式", False, False),
+        ProcessedCommodity(3, "C", "", "日式", False, False),
+        ProcessedCommodity(4, "D", "", "韩式", True, False),
+    ]
+
+    chinese = loader.get_by_cuisine("中式")
+    assert len(chinese) == 2
+
+    japanese = loader.get_by_cuisine("日式")
+    assert len(japanese) == 1
+
+    mexican = loader.get_by_cuisine("墨西哥")
+    assert len(mexican) == 0
+
+
+def test_get_halal_suspects():
+    from models import ProcessedCommodity
+
+    loader = SKUDataLoader.__new__(SKUDataLoader)
+    loader._commodities = [
+        ProcessedCommodity(1, "A", "", "中式", False, False),
+        ProcessedCommodity(2, "B", "", "新马", True, False),
+        ProcessedCommodity(3, "C", "", "日式", False, True),
+    ]
+
+    suspects = loader.get_halal_suspects()
+    assert len(suspects) == 1
+    assert suspects[0].name == "B"
+
+
+def test_get_fried_items():
+    from models import ProcessedCommodity
+
+    loader = SKUDataLoader.__new__(SKUDataLoader)
+    loader._commodities = [
+        ProcessedCommodity(1, "A", "", "中式", False, False),
+        ProcessedCommodity(2, "B", "", "日式", False, True),
+        ProcessedCommodity(3, "C", "", "日式", False, True),
+    ]
+
+    fried = loader.get_fried_items()
+    assert len(fried) == 2
 
 
 def test_get_cuisine_counts():
-    skus = [
-        {"id": 1, "name": "A", "cuisine": "中式"},
-        {"id": 2, "name": "B", "cuisine": "中式"},
-        {"id": 3, "name": "C", "cuisine": "日式"},
-    ]
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump(skus, f)
-        tmp_path = f.name
+    from models import ProcessedCommodity
 
-    try:
-        config = {"data": {"sku_source": "local_json", "sku_json_path": tmp_path}}
-        loader = SKUDataLoader(config)
-        loader.load()
-        counts = loader.get_cuisine_counts()
-        assert counts["中式"] == 2
-        assert counts["日式"] == 1
-    finally:
-        os.unlink(tmp_path)
+    loader = SKUDataLoader.__new__(SKUDataLoader)
+    loader._commodities = [
+        ProcessedCommodity(1, "A", "", "中式", False, False),
+        ProcessedCommodity(2, "B", "", "中式", False, False),
+        ProcessedCommodity(3, "C", "", "日式", False, False),
+    ]
+
+    counts = loader.get_cuisine_counts()
+    assert counts["中式"] == 2
+    assert counts["日式"] == 1
 
 
 def test_unsupported_source_raises():
-    config = {"data": {"sku_source": "postgres", "sku_json_path": ""}}
+    config = {
+        "data": {"sku_source": "postgres", "sku_csv_path": ""},
+        "llm": {},
+    }
     loader = SKUDataLoader(config)
     try:
         loader.load()

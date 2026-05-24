@@ -3,11 +3,16 @@ from agents.evaluator import EvaluatorAgent, build_evaluator_user_message
 
 
 def test_build_evaluator_message():
+    from models import ProcessedCommodity
+
     proposals = [
         {"name": "Chicken Burrito Bowl", "cuisine": "墨西哥"},
     ]
     existing_skus = [
-        {"id": 93, "name": "Chee Cheong Fun", "cuisine": "中式"},
+        ProcessedCommodity(
+            id=93, name="Chee Cheong Fun", description="",
+            cuisine_type="中式", is_halal_suspect=False, is_fried=False,
+        ),
     ]
     msg = build_evaluator_user_message(
         proposals=proposals,

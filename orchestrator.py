@@ -2,7 +2,7 @@ import time
 import yaml
 from models import (
     OrchestratorState, RoundResult, CuisineResult,
-    FinalOutput, EvaluationResult,
+    FinalOutput, EvaluationResult, ProcessedCommodity,
 )
 from utils.data_loader import SKUDataLoader
 from agents.generator import GeneratorAgent
@@ -21,7 +21,7 @@ class Orchestrator:
             "on_round_complete": [],
         }
         self.sku_loader: SKUDataLoader | None = None
-        self.existing_skus: list[dict] = []
+        self.existing_skus: list[ProcessedCommodity] = []
         self.generator: GeneratorAgent | None = None
         self.evaluator: EvaluatorAgent | None = None
         self.searcher: FoodTrendSearcher | None = None
