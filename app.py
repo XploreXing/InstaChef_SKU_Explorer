@@ -65,22 +65,29 @@ def render_control_panel():
 
             def run_pipeline():
                 try:
+                    msgs = st.session_state.pipeline_holder["messages"]
+
                     orch = Orchestrator("config.yaml")
+
+                    msgs.append("🔬 正在用 AI 给 137 条商品做菜系分类...")
                     orch.load_skus()
+                    counts = orch.sku_loader.get_cuisine_counts()
+                    msgs.append(
+                        f"✅ 分类完成: "
+                        + ", ".join(f"{k}{v}" for k, v in sorted(counts.items(), key=lambda x: -x[1]))
+                    )
+
+                    msgs.append("🔍 开始搜索 + 生成 + 评估循环...")
 
                     orch.state_callbacks["on_state_change"].append(
-                        lambda c, r, p, m: st.session_state.pipeline_holder[
-                            "messages"
-                        ].append(
+                        lambda c, r, p, m: msgs.append(
                             f"🔍 **{c}** · Round {r} · `{p}` · "
                             f"已锁定 {m.get('locked_count', 0)}/"
                             f"{m.get('remaining', 10) + m.get('locked_count', 0)}"
                         )
                     )
                     orch.state_callbacks["on_round_complete"].append(
-                        lambda res: st.session_state.pipeline_holder[
-                            "messages"
-                        ].append(
+                        lambda res: msgs.append(
                             f"✅ **{res.cuisine}** Round {res.round_num}: "
                             f"生成 {res.proposals_generated} → "
                             f"✅{res.passed_count} / ❌{res.rejected_count} "
