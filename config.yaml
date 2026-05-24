@@ -1,0 +1,73 @@
+output:
+  base_dir: "/Users/xingrancao/Documents/Obsidian Vault/InstaChef_Intern"
+  filename_prefix: "sku_recommendations"
+  format: "json"
+
+llm:
+  base_url: "https://api.siliconflow.cn/v1"
+  api_key_env: "LLM_API_KEY"
+  generator_model: "deepseek-ai/DeepSeek-V3"
+  evaluator_model: "deepseek-ai/DeepSeek-V3"
+  generator_temperature: 0.7
+  evaluator_temperature: 0.1
+
+search:
+  provider: "tavily"
+  api_key_env: "TAVILY_API_KEY"
+  max_results_per_query: 5
+  region: "sg"
+  time_range: "3m"
+  target_domains:
+    - "foodpanda.sg"
+    - "grabfood.sg"
+    - "stuffd.sg"
+    - "guzmanygomez.com.sg"
+    - "jinjjachicken.com"
+    - "nakhonkitchen.com"
+    - "enciktan.com.sg"
+    - "dintaifung.com.sg"
+    - "crystaljade.com"
+    - "misstamchiak.com"
+    - "sethlui.com"
+    - "eatbook.sg"
+  query_templates:
+    - "{cuisine_en} trending dishes Singapore 2026 Foodpanda"
+    - "best selling {cuisine_en} food Singapore GrabFood 2026"
+    - "{cuisine_en} food trend Singapore restaurant chain popular"
+    - "Singapore {cuisine_en} rice bowl meal prep halal"
+  cuisine_overrides:
+    墨西哥:
+      extra_queries:
+        - "Stuff'd burrito bowl best seller Singapore"
+        - "Guzman y Gomez Singapore menu popular items"
+        - "Mexican rice bowl chain Singapore halal"
+    中式:
+      extra_queries:
+        - "Din Tai Fung Singapore new menu 2026"
+        - "Crystal Jade popular dishes Singapore"
+    日式:
+      extra_queries:
+        - "Japanese curry rice Singapore chain popular"
+        - "omurice Singapore Japanese food trend 2026"
+    韩式:
+      extra_queries:
+        - "Jinjja Chicken Singapore popular menu"
+        - "Korean stew soup Singapore food trend 2026"
+    泰式:
+      extra_queries:
+        - "Nakhon Kitchen Singapore best seller"
+        - "massaman curry Singapore Thai food trend 2026"
+    新马:
+      extra_queries:
+        - "Encik Tan Singapore popular menu"
+        - "nasi kerabu Singapore Malay food rare"
+
+data:
+  sku_source: "local_json"
+  sku_json_path: "data/current_skus.json"
+
+orchestrator:
+  max_rounds_per_cuisine: 3
+  target_per_cuisine: 10
+  pass_threshold: 80
+  cuisines: ["中式", "日式", "韩式", "泰式", "新马", "墨西哥"]

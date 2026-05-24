@@ -1,0 +1,10 @@
+[
+  {"id": 93, "name": "Chee Cheong Fun (Rice Noodle Roll)", "name_zh": "肠粉", "cuisine": "中式", "cuisine_en": "Chinese", "commodity_type": 1, "price_sgd": 3.50, "status": 1, "is_sale": 1},
+  {"id": 92, "name": "Yam Cake", "name_zh": "芋头糕", "cuisine": "中式", "cuisine_en": "Chinese", "commodity_type": 1, "price_sgd": 3.50, "status": 1, "is_sale": 1},
+  {"id": 150, "name": "Teriyaki Chicken (no rice)", "name_zh": "照烧鸡", "cuisine": "日式", "cuisine_en": "Japanese", "commodity_type": 1, "price_sgd": 5.00, "status": 1, "is_sale": 1},
+  {"id": 272, "name": "Beef Gyudon", "name_zh": "牛丼", "cuisine": "日式", "cuisine_en": "Japanese", "commodity_type": 1, "price_sgd": 6.50, "status": 1, "is_sale": 1},
+  {"id": 174, "name": "Kimchi chicken with Rice", "name_zh": "泡菜鸡饭", "cuisine": "韩式", "cuisine_en": "Korean", "commodity_type": 1, "price_sgd": 5.00, "status": 1, "is_sale": 1},
+  {"id": 130, "name": "Thai Red Curry Chicken", "name_zh": "泰式红咖喱鸡", "cuisine": "泰式", "cuisine_en": "Thai", "commodity_type": 1, "price_sgd": 5.00, "status": 1, "is_sale": 1},
+  {"id": 75, "name": "Singapore Laksa", "name_zh": "新加坡叻沙", "cuisine": "新马", "cuisine_en": "Singaporean/Malay", "commodity_type": 1, "price_sgd": 3.90, "status": 1, "is_sale": 1},
+  {"id": 89, "name": "Beef Rendang", "name_zh": "仁当牛肉", "cuisine": "新马", "cuisine_en": "Singaporean/Malay", "commodity_type": 1, "price_sgd": 6.00, "status": 1, "is_sale": 1}
+]
