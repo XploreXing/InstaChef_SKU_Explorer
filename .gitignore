@@ -33,6 +33,9 @@ Obsidian Vault/
 # Output files (generated at runtime, not source)
 output/*.json
 
+# LLM enrichment cache (generated at runtime, not source)
+data/enriched_commodities.json
+
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb

@@ -10,6 +10,9 @@ class SKUDataLoader:
         self.config = config
         self.source = config["data"]["sku_source"]
         self.csv_path = config["data"].get("sku_csv_path", "")
+        self.cache_path = config["data"].get(
+            "enriched_cache_path", "data/enriched_commodities.json"
+        )
         self._commodities: list[ProcessedCommodity] = []
         self._llm_client = None
 
@@ -25,7 +28,7 @@ class SKUDataLoader:
     def load(self) -> list[ProcessedCommodity]:
         if self.source == "local_csv":
             raw = self._load_csv()
-            self._commodities = self._enrich_with_llm(raw)
+            self._commodities = self._enrich(raw)
         elif self.source == "local_json":
             raise NotImplementedError(
                 "local_json source deprecated. Use local_csv with current_commodities.csv"
@@ -47,6 +50,80 @@ class SKUDataLoader:
                     description=row["description"].strip(),
                 ))
         return commodities
+
+    def _load_cache(self) -> dict[int, ProcessedCommodity]:
+        """Load cached enrichment results. Returns {id: ProcessedCommodity}."""
+        if not os.path.exists(self.cache_path):
+            return {}
+        with open(self.cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        cache = {}
+        for item in data:
+            c = ProcessedCommodity(
+                id=item["id"],
+                name=item["name"],
+                description=item.get("description", ""),
+                cuisine_type=item["cuisine_type"],
+            )
+            cache[c.id] = c
+        return cache
+
+    def _save_cache(self, commodities: list[ProcessedCommodity]):
+        """Save enrichment results to cache JSON."""
+        data = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "description": c.description,
+                "cuisine_type": c.cuisine_type,
+            }
+            for c in commodities
+        ]
+        os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
+        with open(self.cache_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+    def _enrich(self, raw: list[RawCommodity]) -> list[ProcessedCommodity]:
+        """Enrich with LLM tags, using cache for incremental updates."""
+        cache = self._load_cache()
+
+        if not cache:
+            # No cache: full enrichment
+            print(
+                f"No cache found. "
+                f"Running full LLM enrichment on {len(raw)} items..."
+            )
+            result = self._enrich_with_llm(raw)
+            self._save_cache(result)
+            return result
+
+        # Cache exists: find delta
+        csv_ids = {c.id for c in raw}
+        cache_ids = set(cache.keys())
+        new_ids = csv_ids - cache_ids
+        deleted_ids = cache_ids - csv_ids
+
+        print(
+            f"Cache hit. {len(cache)} items cached. "
+            f"New: {len(new_ids)}, Deleted: {len(deleted_ids)}"
+        )
+
+        if new_ids:
+            new_raw = [c for c in raw if c.id in new_ids]
+            new_enriched = self._enrich_with_llm(new_raw)
+            for c in new_enriched:
+                cache[c.id] = c
+
+        for did in deleted_ids:
+            del cache[did]
+
+        # Rebuild in CSV order
+        result = [cache[c.id] for c in raw if c.id in cache]
+
+        if new_ids or deleted_ids:
+            self._save_cache(list(cache.values()))
+
+        return result
 
     def _enrich_with_llm(
         self, raw_commodities: list[RawCommodity]
@@ -99,6 +176,7 @@ Return ONLY valid JSON:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=0.1,
+                max_tokens=4096,
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
