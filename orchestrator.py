@@ -3,7 +3,7 @@ import yaml
 from models import (
     OrchestratorState, RoundResult, CuisineResult,
     FinalOutput, EvaluationResult, DishProposal, ExecutiveSummary,
-    ProcessedCommodity,
+    StageTrace, ProcessedCommodity,
 )
 from utils.data_loader import SKUDataLoader
 from utils.guard import HardConstraintGuard
@@ -77,15 +77,33 @@ class Orchestrator:
             "locked_count": 0,
             "remaining": cfg["target_per_cuisine"],
         })
+        # Trace: search
+        t_search = time.time()
         search_results = self.searcher.search_cuisine(cuisine)
+        trace_search = StageTrace(
+            stage="search",
+            elapsed_ms=(time.time() - t_search) * 1000,
+            model_name="tavily",
+            input_size_chars=len(cuisine),
+            output_size_chars=sum(len(str(r)) for r in search_results),
+        )
 
         # Summarizing
         self._emit(cuisine, 0, "summarizing", {
             "locked_count": 0,
             "remaining": cfg["target_per_cuisine"],
         })
+        # Trace: summarize
+        t_summarize = time.time()
         search_summary, ref_map = self.searcher.summarize_for_generator(
             search_results, cuisine
+        )
+        trace_summarize = StageTrace(
+            stage="summarize",
+            elapsed_ms=(time.time() - t_summarize) * 1000,
+            model_name=self.config["llm"].get("generator_model", "n/a"),
+            input_size_chars=sum(len(str(r)) for r in search_results),
+            output_size_chars=len(search_summary),
         )
 
         for round_num in range(1, cfg["max_rounds_per_cuisine"] + 1):
@@ -103,6 +121,8 @@ class Orchestrator:
                 "locked_count": len(locked), "remaining": remaining
             })
 
+            # Trace: generate
+            t_gen = time.time()
             locked_names = [e.proposal.name for e in locked]
             proposal_dicts = self.generator.generate(
                 cuisine=cuisine,
@@ -111,6 +131,14 @@ class Orchestrator:
                 feedback=feedback,
                 locked_names=locked_names,
                 round_num=round_num,
+            )
+
+            trace_generate = StageTrace(
+                stage="generate",
+                elapsed_ms=(time.time() - t_gen) * 1000,
+                model_name=self.config["llm"].get("generator_model", "n/a"),
+                input_size_chars=len(search_summary) + len(feedback),
+                output_size_chars=sum(len(str(p)) for p in proposal_dicts) if proposal_dicts else 0,
             )
 
             if not proposal_dicts:
@@ -196,6 +224,8 @@ class Orchestrator:
                 s for s in self.existing_skus if s.cuisine_type == cuisine
             ]
 
+            # Trace: evaluate
+            t_eval = time.time()
             if guard_passed_proposals:
                 evaluations_raw, summary, suggestions = self.evaluator.evaluate(
                     proposals=guard_passed_proposals,
@@ -215,6 +245,14 @@ class Orchestrator:
             else:
                 llm_results = []
                 suggestions = ""
+
+            trace_evaluate = StageTrace(
+                stage="evaluate",
+                elapsed_ms=(time.time() - t_eval) * 1000,
+                model_name=self.config["llm"].get("evaluator_model", "n/a"),
+                input_size_chars=sum(len(str(p)) for p in guard_passed_proposals),
+                output_size_chars=sum(len(str(e)) for e in llm_results),
+            )
 
             # Combine: lineage-vetoed + guard-vetoed + LLM-evaluated
             evaluation_results = lineage_vetoed + guard_vetoed + llm_results
@@ -248,6 +286,9 @@ class Orchestrator:
             rounds_history.append(round_result)
             self._emit_round_complete(round_result)
 
+            # --- Trace: feedback ---
+            t_fb = time.time()
+
             # --- LLM semantic compression: synthesize feedback + decide threshold ---
             feedback, new_threshold = self._synthesize_feedback(
                 evaluation_results=evaluation_results,
@@ -264,6 +305,28 @@ class Orchestrator:
                     + (round_result.improvement_suggestions or "")
                 )
                 current_threshold = new_threshold
+
+            trace_feedback = StageTrace(
+                stage="feedback",
+                elapsed_ms=(time.time() - t_fb) * 1000,
+                model_name=self.config["llm"].get("generator_model", "n/a"),
+                input_size_chars=sum(len(str(e)) for e in evaluation_results),
+                output_size_chars=len(feedback),
+            )
+
+            # Collect all stage traces for this round
+            round_traces = [trace_generate, trace_evaluate, trace_feedback]
+            if round_num == 1:
+                round_traces = [trace_search, trace_summarize] + round_traces
+
+            round_result.stage_traces = round_traces
+
+            # Print compact trace summary
+            trace_parts = []
+            for t in round_traces:
+                sec = t.elapsed_ms / 1000
+                trace_parts.append(f"{t.stage}={sec:.1f}s")
+            print(f"⏱ {cuisine} Round {round_num} traces: {' | '.join(trace_parts)}", flush=True)
 
             if current_threshold < cfg["pass_threshold"]:
                 feedback += (

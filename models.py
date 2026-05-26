@@ -42,6 +42,17 @@ class EvaluationResult:
 
 
 @dataclass
+class StageTrace:
+    """Performance trace for a single pipeline stage."""
+    stage: str           # "search" | "summarize" | "generate" | "evaluate" | "feedback"
+    elapsed_ms: float
+    model_name: str
+    input_size_chars: int
+    output_size_chars: int
+    error: str = ""
+
+
+@dataclass
 class RoundResult:
     cuisine: str
     round_num: int
@@ -52,6 +63,7 @@ class RoundResult:
     evaluations: list
     improvement_suggestions: str
     elapsed_seconds: float
+    stage_traces: list[StageTrace] = field(default_factory=list)
 
 
 @dataclass
