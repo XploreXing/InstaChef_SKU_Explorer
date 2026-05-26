@@ -20,9 +20,9 @@ def _load_system_prompt() -> str:
 
 def _serialize_commodities(commodities) -> list[dict]:
     """Serialize commodities for Evaluator prompt.
-    Only essential fields — full descriptions cause token overflow on 137 SKUs."""
+    Keeps cuisine_type so blue-ocean scoring knows the count per cuisine."""
     return [
-        {"id": c.id, "name": c.name, "cuisine_type": c.cuisine_type}
+        {"name": c.name, "cuisine_type": c.cuisine_type, "description": c.description[:120]}
         for c in commodities
     ]
 
@@ -33,6 +33,7 @@ def build_evaluator_user_message(
     round_num: int,
     locked_count: int,
     remaining: int,
+    pass_threshold: int = 80,
 ) -> str:
     parts = [
         f"## Current InstaChef SKU Catalog ({len(existing_skus)} total SKUs)",
@@ -44,6 +45,7 @@ def build_evaluator_user_message(
         "## Progress",
         f"Round {round_num} of 3 for this cuisine.",
         f"Currently {locked_count} accepted, need {remaining} more.",
+        f"Pass threshold: total_score >= {pass_threshold} to mark passed=true.",
         "",
         "Evaluate each proposal against the 4 hard constraints first.",
         "If any constraint fails, mark as vetoed with score 0.",
@@ -55,9 +57,10 @@ def build_evaluator_user_message(
 class EvaluatorAgent:
     def __init__(self, config: dict):
         self.cfg = config["llm"]
+        api_key = self.cfg.get("api_key") or os.getenv(self.cfg.get("api_key_env", ""))
         self.client = OpenAI(
-            base_url=self.cfg["base_url"],
-            api_key=os.getenv(self.cfg["api_key_env"]),
+            base_url=self.cfg.get("base_url", "https://api.siliconflow.cn/v1"),
+            api_key=api_key,
         )
         self.system_prompt = _load_system_prompt()
 
@@ -68,6 +71,7 @@ class EvaluatorAgent:
         round_num: int = 1,
         locked_count: int = 0,
         remaining: int = 10,
+        pass_threshold: int = 80,
     ) -> tuple[list[dict], dict, str]:
         user_message = build_evaluator_user_message(
             proposals=proposals,
@@ -75,6 +79,7 @@ class EvaluatorAgent:
             round_num=round_num,
             locked_count=locked_count,
             remaining=remaining,
+            pass_threshold=pass_threshold,
         )
 
         try:
@@ -123,9 +128,11 @@ class EvaluatorAgent:
             proposal = DishProposal(
                 id=ev.get("id", i + 1),
                 name=ev.get("name", prop_dict.get("name", "")),
+                name_cn=prop_dict.get("name_cn", ev.get("name_cn", "")),
                 cuisine=ev.get("cuisine", prop_dict.get("cuisine", "")),
                 price_sgd=prop_dict.get("price_sgd", 0.0),
                 description=prop_dict.get("description", ""),
+                description_cn=prop_dict.get("description_cn", ev.get("description_cn", "")),
                 differentiation=prop_dict.get("differentiation", ""),
                 trend_source=prop_dict.get("trend_source", ""),
             )

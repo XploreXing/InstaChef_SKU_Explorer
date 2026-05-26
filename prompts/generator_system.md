@@ -27,12 +27,16 @@ Return ONLY:
 {
   "proposals": [
     {
-      "name": "...",
+      "name": "English dish name",
+      "name_cn": "中文菜名",
       "cuisine": "...",
       "price_sgd": 0.0,
-      "description": "...",
+      "description": "English description with ingredients and preparation.",
+      "description_cn": "中文描述，包含食材和烹饪方式。",
       "differentiation": "...",
       "trend_source": "..."
     }
   ]
 }
+
+IMPORTANT: Every proposal MUST have both `name` (English) and `name_cn` (Chinese), as well as `description` (English) and `description_cn` (Chinese).

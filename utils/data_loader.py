@@ -19,9 +19,10 @@ class SKUDataLoader:
     def _get_llm_client(self):
         if self._llm_client is None:
             cfg = self.config["llm"]
+            api_key = cfg.get("api_key") or os.getenv(cfg.get("api_key_env", ""))
             self._llm_client = OpenAI(
-                base_url=cfg["base_url"],
-                api_key=os.getenv(cfg["api_key_env"]),
+                base_url=cfg.get("base_url", "https://api.siliconflow.cn/v1"),
+                api_key=api_key,
             )
         return self._llm_client
 

@@ -23,6 +23,8 @@ class DishProposal:
     description: str
     differentiation: str
     trend_source: str
+    name_cn: str = ""
+    description_cn: str = ""
 
 
 @dataclass

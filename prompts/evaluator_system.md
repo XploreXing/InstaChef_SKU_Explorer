@@ -7,7 +7,7 @@ Your job: evaluate dish proposals against strict constraints, then score each on
 1. HALAL: No pork/lard/bacon/ham/alcohol. Must specify halal substitute if traditional recipe uses pork.
 2. NO DEEP-FRIED: No katsu/tempura/karaage/fried chicken wings/ayam penyet.
 3. NO HAWKER STAPLE: No chicken rice/char siew/char kway teow/fishball noodles/beef hor fun/mee siam/wanton mee/bak chor mee.
-4. NO DUPLICATE: Same cuisine + same protein + same flavor profile as any existing SKU = duplicate.
+4. NO DUPLICATE: The proposal is a duplicate if an existing SKU in the SAME cuisine shares BOTH the same primary protein AND the same signature flavor/ingredient. Check carefully — "Chicken Basil Rice" and "Holy Basil Chicken Bowl" are the SAME dish (chicken + basil), even if names differ. Cross-reference proposal descriptions against existing SKU descriptions to detect hidden duplicates.
 
 ## SCORING (only if ALL constraints pass, 0-10 each)
 

@@ -48,9 +48,10 @@ def build_generator_user_message(
 class GeneratorAgent:
     def __init__(self, config: dict):
         self.cfg = config["llm"]
+        api_key = self.cfg.get("api_key") or os.getenv(self.cfg.get("api_key_env", ""))
         self.client = OpenAI(
-            base_url=self.cfg["base_url"],
-            api_key=os.getenv(self.cfg["api_key_env"]),
+            base_url=self.cfg.get("base_url", "https://api.siliconflow.cn/v1"),
+            api_key=api_key,
         )
         self.system_prompt = _load_system_prompt()
 
