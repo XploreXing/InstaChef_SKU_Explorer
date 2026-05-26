@@ -99,7 +99,7 @@ class Orchestrator:
         })
         # Trace: summarize
         t_summarize = time.time()
-        search_summary, ref_map = self.searcher.summarize_for_generator(
+        search_summary, ref_map, ref_contents = self.searcher.summarize_for_generator(
             search_results, cuisine
         )
         trace_summarize = StageTrace(
@@ -156,11 +156,43 @@ class Orchestrator:
             for p in proposal_dicts:
                 refs = p.get("source_refs", [])
                 valid = bool(refs) and all(r in ref_map for r in refs)
+
+                # Evidence match: check if proposal keywords appear in referenced content
+                evidence_matched = False
+                checked_terms: list[str] = []
+                if valid and ref_contents:
+                    # Extract searchable terms from proposal name
+                    name = p.get("name", "")
+                    name_cn = p.get("name_cn", "")
+                    desc = p.get("description", "")
+                    # Split on spaces, punctuation; filter short words
+                    terms = set(
+                        t.lower().strip(",.()")
+                        for t in name.split() + desc.split()
+                        if len(t.strip(",.()")) > 3
+                    )
+                    # Also split Chinese name into bigrams
+                    for j in range(len(name_cn) - 1):
+                        bigram = name_cn[j:j+2]
+                        if len(bigram) == 2:
+                            terms.add(bigram)
+
+                    # Check each term against referenced content
+                    ref_texts = " ".join(
+                        ref_contents.get(r, "") for r in refs if r in ref_contents
+                    ).lower()
+                    for term in terms:
+                        if term.lower() in ref_texts:
+                            evidence_matched = True
+                            checked_terms.append(term)
+
                 lineage_log.append({
                     "name": p.get("name", ""),
                     "name_cn": p.get("name_cn", ""),
                     "source_refs": refs,
                     "validated": valid,
+                    "evidence_matched": evidence_matched,
+                    "checked_terms": checked_terms,
                     "ref_urls": {r: ref_map[r] for r in refs if r in ref_map} if valid else {},
                 })
                 if not valid:

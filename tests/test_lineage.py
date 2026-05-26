@@ -70,7 +70,7 @@ class TestSearchRefTagging:
             config = yaml.safe_load(f)
 
         searcher = FoodTrendSearcher(config)
-        summary, ref_map = searcher.summarize_for_generator(
+        summary, ref_map, ref_contents = searcher.summarize_for_generator(
             [
                 {"title": "Test Article", "url": "https://example.com/1", "content": "Interesting food trend."},
                 {"title": "Another Article", "url": "https://example.com/2", "content": "Popular dish."},
@@ -83,6 +83,7 @@ class TestSearchRefTagging:
         assert ref_map["REF_01"] == "https://example.com/1"
         assert ref_map["REF_02"] == "https://example.com/2"
         assert len(ref_map) == 2
+        assert ref_contents["REF_01"] == "Interesting food trend."
 
     def test_summarize_empty_results(self):
         from utils.search import FoodTrendSearcher
@@ -92,7 +93,7 @@ class TestSearchRefTagging:
             config = yaml.safe_load(f)
 
         searcher = FoodTrendSearcher(config)
-        summary, ref_map = searcher.summarize_for_generator([], "Test")
+        summary, ref_map, ref_contents = searcher.summarize_for_generator([], "Test")
 
         assert isinstance(summary, str)
         assert ref_map == {}

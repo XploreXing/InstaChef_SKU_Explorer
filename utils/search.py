@@ -134,23 +134,27 @@ class FoodTrendSearcher:
                 unique.append(r)
         return unique
 
-    def summarize_for_generator(self, results: list[dict], cuisine: str) -> tuple[str, dict[str, str]]:
-        """Tag search results with [REF_01], [REF_02], etc. and return a mapping.
-        Returns (summary_text, ref_map) where ref_map is {tag: url}."""
+    def summarize_for_generator(self, results: list[dict], cuisine: str) -> tuple[str, dict[str, str], dict[str, str]]:
+        """Tag search results with [REF_01], [REF_02], etc.
+        Returns (summary_text, ref_map, ref_contents) where:
+        - ref_map is {tag: url}
+        - ref_contents is {tag: full_content_snippet} for evidence matching."""
         if not results:
-            return f"No external trend data found for {cuisine}.", {}
+            return f"No external trend data found for {cuisine}.", {}, {}
 
         ref_map: dict[str, str] = {}
+        ref_contents: dict[str, str] = {}
         lines = [f"## External Market Research for {cuisine}\n"]
 
         for i, r in enumerate(results):
             tag = f"REF_{i + 1:02d}"
             ref_map[tag] = r.get("url", "")
             content = r.get("content", "")[:300]
+            ref_contents[tag] = content
             lines.append(
                 f"- **[{tag}] {r.get('title', 'Untitled')}** "
                 f"({r.get('url', '')}): {content}"
             )
 
         lines.append(f"\n*{len(results)} sources found. References: {', '.join(ref_map.keys())}.*")
-        return "\n".join(lines), ref_map
+        return "\n".join(lines), ref_map, ref_contents
