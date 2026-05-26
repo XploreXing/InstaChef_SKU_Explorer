@@ -171,6 +171,7 @@ def _load_output():
                 price_sgd=p_data.get("price_sgd", 0),
                 differentiation=p_data.get("differentiation", ""),
                 trend_source=p_data.get("trend_source", ""),
+                source_refs=p_data.get("source_refs", []),
             )
             locked_evals.append(EvaluationResult(
                 proposal=prop,

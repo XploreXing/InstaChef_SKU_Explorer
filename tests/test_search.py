@@ -56,8 +56,9 @@ def test_build_queries_no_overrides():
 def test_summarize_for_generator_empty():
     config = {"search": {"provider": "tavily", "api_key_env": "KEY"}}
     searcher = FoodTrendSearcher(config)
-    summary = searcher.summarize_for_generator([], "Chinese")
+    summary, ref_map = searcher.summarize_for_generator([], "Chinese")
     assert "No external trend data found" in summary
+    assert ref_map == {}
 
 
 def test_summarize_for_generator_with_results():
@@ -67,8 +68,12 @@ def test_summarize_for_generator_with_results():
         {"title": "Best Chinese Food 2026", "url": "https://example.com/1", "content": "Din Tai Fung new menu launched with spicy dishes."},
         {"title": "Foodpanda Trends", "url": "https://example.com/2", "content": "Sichuan mala growing 30% YoY."},
     ]
-    summary = searcher.summarize_for_generator(results, "Chinese")
+    summary, ref_map = searcher.summarize_for_generator(results, "Chinese")
     assert "Best Chinese Food 2026" in summary
+    assert "[REF_01]" in summary
+    assert "[REF_02]" in summary
     assert "Din Tai Fung" in summary
     assert "Sichuan mala" in summary
     assert "2 sources found" in summary
+    assert ref_map["REF_01"] == "https://example.com/1"
+    assert ref_map["REF_02"] == "https://example.com/2"

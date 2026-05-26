@@ -34,9 +34,12 @@ Return ONLY:
       "description": "English description with ingredients and preparation.",
       "description_cn": "中文描述，包含食材和烹饪方式。",
       "differentiation": "...",
-      "trend_source": "..."
+      "trend_source": "...",
+      "source_refs": ["REF_01", "REF_03"]
     }
   ]
 }
 
-IMPORTANT: Every proposal MUST have both `name` (English) and `name_cn` (Chinese), as well as `description` (English) and `description_cn` (Chinese).
+IMPORTANT:
+- Every proposal MUST have both `name` (English) and `name_cn` (Chinese), as well as `description` (English) and `description_cn` (Chinese).
+- Every proposal MUST include `source_refs`: a list of reference tags (e.g. ["REF_01", "REF_03"]) from the market research section above. These tags appear in brackets like [REF_01] before each source title. Only include tags that actually appear in the research data. Do NOT fabricate or omit this field.

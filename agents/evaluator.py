@@ -135,6 +135,7 @@ class EvaluatorAgent:
                 description_cn=prop_dict.get("description_cn", ev.get("description_cn", "")),
                 differentiation=prop_dict.get("differentiation", ""),
                 trend_source=prop_dict.get("trend_source", ""),
+                source_refs=prop_dict.get("source_refs", []),
             )
 
             scores = ev.get("scores", {})

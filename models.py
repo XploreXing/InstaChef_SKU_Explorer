@@ -25,6 +25,7 @@ class DishProposal:
     trend_source: str
     name_cn: str = ""
     description_cn: str = ""
+    source_refs: list[str] = field(default_factory=list)
 
 
 @dataclass

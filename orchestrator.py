@@ -82,7 +82,7 @@ class Orchestrator:
             "locked_count": 0,
             "remaining": cfg["target_per_cuisine"],
         })
-        search_summary = self.searcher.summarize_for_generator(
+        search_summary, ref_map = self.searcher.summarize_for_generator(
             search_results, cuisine
         )
 
@@ -114,11 +114,45 @@ class Orchestrator:
             if not proposal_dicts:
                 break
 
+            # --- Task 4: Source-ref lineage validation (fast-fail hallucinations) ---
+            lineage_vetoed: list[EvaluationResult] = []
+            validated_proposals: list[dict] = []
+
+            for p in proposal_dicts:
+                refs = p.get("source_refs", [])
+                if not refs or not all(r in ref_map for r in refs):
+                    lineage_vetoed.append(EvaluationResult(
+                        proposal=DishProposal(
+                            id=p.get("id", 0),
+                            name=p.get("name", ""),
+                            name_cn=p.get("name_cn", ""),
+                            cuisine=p.get("cuisine", ""),
+                            price_sgd=p.get("price_sgd", 0),
+                            description=p.get("description", ""),
+                            description_cn=p.get("description_cn", ""),
+                            differentiation=p.get("differentiation", ""),
+                            trend_source=p.get("trend_source", ""),
+                            source_refs=p.get("source_refs", []),
+                        ),
+                        vetoed=True,
+                        veto_reason="幻觉数据：未引用有效搜索来源（source_refs 为空或包含无效引用标签）",
+                        cuisine_blue_ocean=0,
+                        trend_heat=0,
+                        hawker_substitutability=0,
+                        total_score=0,
+                        passed=False,
+                        reasoning="数据谱系验证失败 — Fast-Failure 拦截",
+                    ))
+                else:
+                    # Inject ref_map URLs for traceability
+                    p["_ref_urls"] = {r: ref_map[r] for r in refs}
+                    validated_proposals.append(p)
+
             # --- Task 1: Hard-coded guard pre-check (before Evaluator LLM) ---
             guard_vetoed: list[EvaluationResult] = []
             guard_passed_proposals: list[dict] = []
 
-            for p in proposal_dicts:
+            for p in validated_proposals:
                 passed, veto_reason = HardConstraintGuard.precheck(p)
                 if not passed:
                     guard_vetoed.append(EvaluationResult(
@@ -132,6 +166,7 @@ class Orchestrator:
                             description_cn=p.get("description_cn", ""),
                             differentiation=p.get("differentiation", ""),
                             trend_source=p.get("trend_source", ""),
+                            source_refs=p.get("source_refs", []),
                         ),
                         vetoed=True,
                         veto_reason=veto_reason,
@@ -179,8 +214,8 @@ class Orchestrator:
                 llm_results = []
                 suggestions = ""
 
-            # Combine: guard-vetoed + LLM-evaluated
-            evaluation_results = guard_vetoed + llm_results
+            # Combine: lineage-vetoed + guard-vetoed + LLM-evaluated
+            evaluation_results = lineage_vetoed + guard_vetoed + llm_results
 
             # JUDGING — lock incrementally so UI sees step-by-step progress
             self.state = OrchestratorState.JUDGING
