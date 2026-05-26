@@ -157,24 +157,34 @@ class Orchestrator:
                 refs = p.get("source_refs", [])
                 valid = bool(refs) and all(r in ref_map for r in refs)
 
-                # Evidence match: check if proposal keywords appear in referenced content
+                # Evidence match: check if DISTINCTIVE proposal keywords
+                # appear in referenced content (exclude generic food words)
                 evidence_matched = False
                 checked_terms: list[str] = []
                 if valid and ref_contents:
-                    # Extract searchable terms from proposal name
+                    # Common food words that provide no signal
+                    _STOP_FOOD_WORDS = {
+                        "rice", "bowl", "chicken", "beef", "pork", "fish",
+                        "beans", "sauce", "with", "grilled", "fresh", "spicy",
+                        "fried", "broth", "soup", "noodle", "plate", "served",
+                        "dish", "menu", "flavor", "style", "meal", "lunch",
+                        "dinner", "food", "cuisine", "restaurant", "rice",
+                        "halal", "vending", "machine", "instachef",
+                    }
                     name = p.get("name", "")
                     name_cn = p.get("name_cn", "")
                     desc = p.get("description", "")
-                    # Split on spaces, punctuation; filter short words
+                    # Split, filter short words and stop words
                     terms = set(
                         t.lower().strip(",.()")
                         for t in name.split() + desc.split()
                         if len(t.strip(",.()")) > 3
+                        and t.lower().strip(",.()") not in _STOP_FOOD_WORDS
                     )
-                    # Also split Chinese name into bigrams
+                    # Chinese bigrams (filter single-char)
                     for j in range(len(name_cn) - 1):
                         bigram = name_cn[j:j+2]
-                        if len(bigram) == 2:
+                        if len(bigram) == 2 and bigram not in _STOP_FOOD_WORDS:
                             terms.add(bigram)
 
                     # Check each term against referenced content
