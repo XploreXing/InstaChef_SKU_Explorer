@@ -87,6 +87,46 @@ def _save_executive_summary(output, log_dir: Path) -> Path | None:
     return path
 
 
+def _save_lineage_log(output, log_dir: Path) -> Path | None:
+    """Save search-ref mapping and proposal reference validation to a JSON file.
+    Lets developers verify Generator claims against Tavily sources."""
+    from datetime import datetime
+
+    entries: list[dict] = []
+    for cuisine, cr in output.cuisines.items():
+        for rr in cr.rounds_history:
+            if rr.ref_map or rr.lineage_results:
+                entries.append({
+                    "cuisine": cuisine,
+                    "round": rr.round_num,
+                    "search_refs": {
+                        tag: url for tag, url in rr.ref_map.items()
+                    },
+                    "proposals": rr.lineage_results,
+                })
+
+    if not entries:
+        return None
+
+    # Quick stats
+    total = sum(len(e["proposals"]) for e in entries)
+    passed = sum(
+        1 for e in entries for p in e["proposals"] if p.get("validated")
+    )
+    hallucinated = total - passed
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = log_dir / f"lineage_{ts}.json"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({
+            "timestamp": output.timestamp,
+            "stats": {"total": total, "validated": passed, "hallucinated": hallucinated},
+            "entries": entries,
+        }, f, ensure_ascii=False, indent=2)
+    return path
+
+
 def _save_tracing_log(output, log_dir: Path) -> Path | None:
     """Save per-stage performance traces to a standalone JSON file."""
     from collections import defaultdict
@@ -467,6 +507,9 @@ def render_control_panel():
                         trace_path = _save_tracing_log(output, Path("data/logs"))
                         if trace_path:
                             log(f"⏱ 追踪日志已保存: {trace_path.name}")
+                        lineage_path = _save_lineage_log(output, Path("data/logs"))
+                        if lineage_path:
+                            log(f"🔗 数据谱系已保存: {lineage_path.name}")
                         log("🎉 搜索完成！")
                 except Exception as e:
                     state["error"] = str(e)

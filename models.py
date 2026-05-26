@@ -64,6 +64,8 @@ class RoundResult:
     improvement_suggestions: str
     elapsed_seconds: float
     stage_traces: list[StageTrace] = field(default_factory=list)
+    ref_map: dict = field(default_factory=dict)
+    lineage_results: list = field(default_factory=list)
 
 
 @dataclass

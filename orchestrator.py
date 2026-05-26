@@ -147,10 +147,19 @@ class Orchestrator:
             # --- Task 4: Source-ref lineage validation (fast-fail hallucinations) ---
             lineage_vetoed: list[EvaluationResult] = []
             validated_proposals: list[dict] = []
+            lineage_log: list[dict] = []  # audit trail for lineage_<ts>.json
 
             for p in proposal_dicts:
                 refs = p.get("source_refs", [])
-                if not refs or not all(r in ref_map for r in refs):
+                valid = bool(refs) and all(r in ref_map for r in refs)
+                lineage_log.append({
+                    "name": p.get("name", ""),
+                    "name_cn": p.get("name_cn", ""),
+                    "source_refs": refs,
+                    "validated": valid,
+                    "ref_urls": {r: ref_map[r] for r in refs if r in ref_map} if valid else {},
+                })
+                if not valid:
                     lineage_vetoed.append(EvaluationResult(
                         proposal=DishProposal(
                             id=p.get("id", 0),
@@ -282,6 +291,8 @@ class Orchestrator:
                 evaluations=evaluation_results,
                 improvement_suggestions=suggestions,
                 elapsed_seconds=time.time() - t_round,
+                ref_map=ref_map,
+                lineage_results=lineage_log,
             )
             rounds_history.append(round_result)
             self._emit_round_complete(round_result)
