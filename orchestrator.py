@@ -2,9 +2,10 @@ import time
 import yaml
 from models import (
     OrchestratorState, RoundResult, CuisineResult,
-    FinalOutput, EvaluationResult, ProcessedCommodity,
+    FinalOutput, EvaluationResult, DishProposal, ProcessedCommodity,
 )
 from utils.data_loader import SKUDataLoader
+from utils.guard import HardConstraintGuard
 from agents.generator import GeneratorAgent
 from agents.evaluator import EvaluatorAgent
 from utils.search import FoodTrendSearcher
@@ -113,34 +114,73 @@ class Orchestrator:
             if not proposal_dicts:
                 break
 
-            # EVALUATING
+            # --- Task 1: Hard-coded guard pre-check (before Evaluator LLM) ---
+            guard_vetoed: list[EvaluationResult] = []
+            guard_passed_proposals: list[dict] = []
+
+            for p in proposal_dicts:
+                passed, veto_reason = HardConstraintGuard.precheck(p)
+                if not passed:
+                    guard_vetoed.append(EvaluationResult(
+                        proposal=DishProposal(
+                            id=p.get("id", 0),
+                            name=p.get("name", ""),
+                            name_cn=p.get("name_cn", ""),
+                            cuisine=p.get("cuisine", ""),
+                            price_sgd=p.get("price_sgd", 0),
+                            description=p.get("description", ""),
+                            description_cn=p.get("description_cn", ""),
+                            differentiation=p.get("differentiation", ""),
+                            trend_source=p.get("trend_source", ""),
+                        ),
+                        vetoed=True,
+                        veto_reason=veto_reason,
+                        cuisine_blue_ocean=0,
+                        trend_heat=0,
+                        hawker_substitutability=0,
+                        total_score=0,
+                        passed=False,
+                        reasoning="高压线熔断 — 无需 LLM 评估",
+                    ))
+                else:
+                    guard_passed_proposals.append(p)
+
+            # EVALUATING — only guard-passed proposals go to LLM
             self.state = OrchestratorState.EVALUATING
             self._emit(cuisine, round_num, "evaluating", {
                 "proposal_count": len(proposal_dicts),
+                "guard_vetoed": len(guard_vetoed),
                 "locked_count": len(locked),
                 "remaining": remaining,
             })
 
-            # Only pass current cuisine's SKUs — duplicate detection only
-            # compares within the same cuisine ("same cuisine + same protein")
+            # Only pass current cuisine's SKUs
             cuisine_skus = [
                 s for s in self.existing_skus if s.cuisine_type == cuisine
             ]
-            evaluations_raw, summary, suggestions = self.evaluator.evaluate(
-                proposals=proposal_dicts,
-                existing_skus=cuisine_skus,
-                round_num=round_num,
-                locked_count=len(locked),
-                remaining=remaining,
-                pass_threshold=current_threshold,
-            )
 
-            if not evaluations_raw:
-                break
+            if guard_passed_proposals:
+                evaluations_raw, summary, suggestions = self.evaluator.evaluate(
+                    proposals=guard_passed_proposals,
+                    existing_skus=cuisine_skus,
+                    round_num=round_num,
+                    locked_count=len(locked),
+                    remaining=remaining,
+                    pass_threshold=current_threshold,
+                )
 
-            evaluation_results = EvaluatorAgent.to_evaluation_results(
-                evaluations_raw, proposal_dicts
-            )
+                if evaluations_raw:
+                    llm_results = EvaluatorAgent.to_evaluation_results(
+                        evaluations_raw, guard_passed_proposals
+                    )
+                else:
+                    llm_results = []
+            else:
+                llm_results = []
+                suggestions = ""
+
+            # Combine: guard-vetoed + LLM-evaluated
+            evaluation_results = guard_vetoed + llm_results
 
             # JUDGING — lock incrementally so UI sees step-by-step progress
             self.state = OrchestratorState.JUDGING

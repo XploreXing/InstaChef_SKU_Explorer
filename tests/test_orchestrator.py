@@ -19,20 +19,45 @@ def test_load_skus():
     assert len(orch.existing_skus) > 0
 
 
-def test_extract_improvement_feedback():
+def test_synthesize_feedback_fallback():
+    """Test that _synthesize_feedback fallback works without API key."""
+    from models import EvaluationResult, DishProposal
+
     orch = Orchestrator.__new__(Orchestrator)
     orch.config = {
-        "orchestrator": {"pass_threshold": 80}
+        "llm": {
+            "base_url": "https://api.siliconflow.cn/v1",
+            "api_key_env": "LLM_API_KEY",
+            "generator_model": "deepseek-ai/DeepSeek-V3",
+        },
+        "orchestrator": {"pass_threshold": 80},
     }
-    rejection_reasons = [
-        {"id": 1, "name": "Dish A", "reason": "Deep-fried"},
-        {"id": 2, "name": "Dish B", "reason": "Too similar to Teriyaki Chicken"},
+
+    results = [
+        EvaluationResult(
+            proposal=DishProposal(
+                id=1, name="Dish A", cuisine="Test",
+                price_sgd=5, description="test", differentiation="",
+                trend_source="",
+            ),
+            vetoed=True, veto_reason="Deep-fried",
+            cuisine_blue_ocean=0, trend_heat=0,
+            hawker_substitutability=0, total_score=0,
+            passed=False, reasoning="",
+        ),
     ]
-    suggestions = "Focus on Mexican and Korean stews. Avoid teriyaki."
-    feedback = orch._extract_improvement_feedback(rejection_reasons, suggestions)
-    assert "Deep-fried" in feedback
-    assert "Teriyaki Chicken" in feedback
-    assert "Mexican" in feedback
+
+    # Fallback path (no API key in test env) should return text + threshold
+    feedback, new_threshold = orch._synthesize_feedback(
+        evaluation_results=results,
+        cuisine="Test",
+        pass_threshold=80,
+        round_num=1,
+        sku_count=5,
+    )
+    assert isinstance(feedback, str)
+    assert len(feedback) > 0
+    assert isinstance(new_threshold, int)
 
 
 def test_should_continue():
