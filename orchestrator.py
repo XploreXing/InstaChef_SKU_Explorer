@@ -59,7 +59,11 @@ class Orchestrator:
             cuisines=self.results,
             total_elapsed_seconds=time.time() - t_start,
         )
+        t_summary = time.time()
         output.executive_summary = self._generate_executive_summary(output)
+        summary_ms = (time.time() - t_summary) * 1000
+        print(f"⏱ Pipeline: executive_summary={summary_ms/1000:.1f}s | total={time.time() - t_start:.1f}s", flush=True)
+
         self.state = OrchestratorState.DONE
         return output
 
