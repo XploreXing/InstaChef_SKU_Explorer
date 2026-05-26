@@ -1,7 +1,8 @@
 import pytest
 from models import (
     DishProposal, EvaluationResult, RoundResult, CuisineResult,
-    FinalOutput, OrchestratorState, RawCommodity, ProcessedCommodity,
+    FinalOutput, ExecutiveSummary,
+    OrchestratorState, RawCommodity, ProcessedCommodity,
 )
 
 

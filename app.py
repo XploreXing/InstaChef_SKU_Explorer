@@ -72,6 +72,21 @@ def _save_output(output) -> Path:
     return _OUTPUT_FILE
 
 
+def _save_executive_summary(output, log_dir: Path) -> Path | None:
+    """Save ExecutiveSummary to a standalone JSON file."""
+    if output.executive_summary is None:
+        return None
+    from dataclasses import asdict
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = log_dir / f"executive_summary_{ts}.json"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(asdict(output.executive_summary), f, ensure_ascii=False, indent=2)
+    return path
+
+
 def _save_evaluation_log(output, log_dir: Path):
     """Save per-proposal evaluation details with reasons to a timestamped JSON file."""
     from datetime import datetime
@@ -392,6 +407,9 @@ def render_control_panel():
                         _save_output(output)
                         log_path = _save_evaluation_log(output, Path("data"))
                         log(f"📝 评估日志已保存: {log_path.name}")
+                        summary_path = _save_executive_summary(output, Path("data"))
+                        if summary_path:
+                            log(f"📊 高管摘要已保存: {summary_path.name}")
                         log("🎉 搜索完成！")
                 except Exception as e:
                     state["error"] = str(e)

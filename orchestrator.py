@@ -2,7 +2,8 @@ import time
 import yaml
 from models import (
     OrchestratorState, RoundResult, CuisineResult,
-    FinalOutput, EvaluationResult, DishProposal, ProcessedCommodity,
+    FinalOutput, EvaluationResult, DishProposal, ExecutiveSummary,
+    ProcessedCommodity,
 )
 from utils.data_loader import SKUDataLoader
 from utils.guard import HardConstraintGuard
@@ -58,6 +59,7 @@ class Orchestrator:
             cuisines=self.results,
             total_elapsed_seconds=time.time() - t_start,
         )
+        output.executive_summary = self._generate_executive_summary(output)
         self.state = OrchestratorState.DONE
         return output
 
@@ -411,6 +413,97 @@ Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no cha
                 )
                 return " ".join(parts), max(pass_threshold + adj, 60)
             return " ".join(parts), pass_threshold
+
+    def _generate_executive_summary(self, output: FinalOutput) -> ExecutiveSummary:
+        """LLM-generated business-readable summary for stakeholders."""
+        import json as _json
+        import os as _os
+
+        # Build compact aggregate stats
+        total_proposals = 0
+        total_passed = 0
+        veto_patterns: dict[str, int] = {}
+        low_score_notes: list[str] = []
+
+        for cuisine, cr in output.cuisines.items():
+            for rr in cr.rounds_history:
+                total_proposals += rr.proposals_generated
+                total_passed += sum(1 for e in rr.evaluations if e.passed)
+                for e in rr.evaluations:
+                    if e.vetoed and e.veto_reason:
+                        key = e.veto_reason[:60]
+                        veto_patterns[key] = veto_patterns.get(key, 0) + 1
+                    elif not e.passed and not e.vetoed:
+                        low_score_notes.append(
+                            f"{e.proposal.name}: blue={e.cuisine_blue_ocean:.0f} "
+                            f"trend={e.trend_heat:.0f} hawker={e.hawker_substitutability:.0f}"
+                        )
+
+        pass_rate = f"{total_passed}/{total_proposals} ({100*total_passed/max(total_proposals,1):.0f}%)"
+        top_vetoes = [f"{c}x {r}" for r, c in sorted(veto_patterns.items(), key=lambda x: -x[1])[:5]]
+        top_passed = [
+            e.proposal.name
+            for cr in output.cuisines.values()
+            for e in cr.locked[:3]
+        ]
+
+        system_prompt = """You are an executive summarizer for InstaChef's SKU Explorer.
+Generate a concise business summary in JSON format. Keep it under 200 words total.
+Focus on patterns and actionable insights, not raw data."""
+
+        user_message = f"""Pipeline completed. Aggregate stats:
+- Overall pass rate: {pass_rate}
+- Total proposals evaluated: {total_proposals}
+- Top veto patterns: {_json.dumps(top_vetoes)}
+- Low-score notes (sample): {_json.dumps(low_score_notes[:5])}
+- Top locked recommendations: {_json.dumps(top_passed)}
+
+Output JSON:
+{{"overall_pass_rate": "{pass_rate}",
+  "total_proposals": {total_proposals},
+  "total_passed": {total_passed},
+  "veto_patterns": [...],
+  "low_score_patterns": [...],
+  "risk_direction": "...",
+  "top_recommendations": [...]}}"""
+
+        try:
+            from openai import OpenAI
+            cfg = self.config["llm"]
+            client = OpenAI(
+                base_url=cfg.get("base_url", "https://api.siliconflow.cn/v1"),
+                api_key=cfg.get("api_key") or _os.getenv(cfg.get("api_key_env", "")),
+            )
+            response = client.chat.completions.create(
+                model=cfg.get("generator_model", "deepseek-ai/DeepSeek-V3"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.3,
+                max_tokens=500,
+                response_format={"type": "json_object"},
+            )
+            data = _json.loads(response.choices[0].message.content)
+            return ExecutiveSummary(
+                overall_pass_rate=data.get("overall_pass_rate", pass_rate),
+                total_proposals=data.get("total_proposals", total_proposals),
+                total_passed=data.get("total_passed", total_passed),
+                veto_patterns=data.get("veto_patterns", top_vetoes),
+                low_score_patterns=data.get("low_score_patterns", []),
+                risk_direction=data.get("risk_direction", ""),
+                top_recommendations=data.get("top_recommendations", top_passed),
+            )
+        except Exception:
+            return ExecutiveSummary(
+                overall_pass_rate=pass_rate,
+                total_proposals=total_proposals,
+                total_passed=total_passed,
+                veto_patterns=top_vetoes,
+                low_score_patterns=[],
+                risk_direction="(LLM summary unavailable)",
+                top_recommendations=top_passed,
+            )
 
     def _emit(self, cuisine: str, round_num: int, phase: str, meta: dict):
         for cb in self.state_callbacks.get("on_state_change", []):

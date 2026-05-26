@@ -39,6 +39,7 @@ data/pipeline_progress.json
 data/pipeline_progress.tmp
 data/pipeline_output.json
 data/evaluation_log_*.json
+data/executive_summary_*.json
 
 # Jupyter
 .ipynb_checkpoints/
