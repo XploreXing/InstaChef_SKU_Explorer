@@ -110,10 +110,15 @@ def _save_lineage_log(output, log_dir: Path) -> Path | None:
 
     # Quick stats
     total = sum(len(e["proposals"]) for e in entries)
-    passed = sum(
+    validated = sum(
         1 for e in entries for p in e["proposals"] if p.get("validated")
     )
-    hallucinated = total - passed
+    hallucinated = total - validated
+    evidence_ok = sum(
+        1 for e in entries for p in e["proposals"]
+        if p.get("validated") and p.get("evidence_matched")
+    )
+    evidence_missing = validated - evidence_ok
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = log_dir / f"lineage_{ts}.json"
@@ -121,7 +126,13 @@ def _save_lineage_log(output, log_dir: Path) -> Path | None:
     with open(path, "w") as f:
         json.dump({
             "timestamp": output.timestamp,
-            "stats": {"total": total, "validated": passed, "hallucinated": hallucinated},
+            "stats": {
+                "total": total,
+                "tag_validated": validated,
+                "hallucinated": hallucinated,
+                "evidence_matched": evidence_ok,
+                "evidence_missing": evidence_missing,
+            },
             "entries": entries,
         }, f, ensure_ascii=False, indent=2)
     return path
