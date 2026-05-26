@@ -157,44 +157,40 @@ class Orchestrator:
                 refs = p.get("source_refs", [])
                 valid = bool(refs) and all(r in ref_map for r in refs)
 
-                # Evidence match: check if DISTINCTIVE proposal keywords
-                # appear in referenced content (exclude generic food words)
+                # Evidence match: take first ~60% of dish name words as
+                # the "signature phrase", check if it appears in search content
                 evidence_matched = False
                 checked_terms: list[str] = []
                 if valid and ref_contents:
-                    # Common food words that provide no signal
-                    _STOP_FOOD_WORDS = {
-                        "rice", "bowl", "chicken", "beef", "pork", "fish",
-                        "beans", "sauce", "with", "grilled", "fresh", "spicy",
-                        "fried", "broth", "soup", "noodle", "plate", "served",
-                        "dish", "menu", "flavor", "style", "meal", "lunch",
-                        "dinner", "food", "cuisine", "restaurant", "rice",
-                        "halal", "vending", "machine", "instachef",
-                    }
                     name = p.get("name", "")
-                    name_cn = p.get("name_cn", "")
-                    desc = p.get("description", "")
-                    # Split, filter short words and stop words
-                    terms = set(
-                        t.lower().strip(",.()")
-                        for t in name.split() + desc.split()
-                        if len(t.strip(",.()")) > 3
-                        and t.lower().strip(",.()") not in _STOP_FOOD_WORDS
-                    )
-                    # Chinese bigrams (filter single-char)
-                    for j in range(len(name_cn) - 1):
-                        bigram = name_cn[j:j+2]
-                        if len(bigram) == 2 and bigram not in _STOP_FOOD_WORDS:
-                            terms.add(bigram)
+                    words = name.split()
+                    if not words:
+                        words = [name]
 
-                    # Check each term against referenced content
+                    # Take first ~60% of words (min 1, rounded up)
+                    n = max(1, -(-len(words) * 3 // 5))  # ceil(60%)
+                    signature_words = words[:n]
+                    signature_phrase = " ".join(
+                        w.lower().strip(",.()") for w in signature_words
+                    )
+
                     ref_texts = " ".join(
                         ref_contents.get(r, "") for r in refs if r in ref_contents
                     ).lower()
-                    for term in terms:
-                        if term.lower() in ref_texts:
-                            evidence_matched = True
-                            checked_terms.append(term)
+
+                    checked_terms = [signature_phrase]
+
+                    # Match: does the signature phrase appear in search content?
+                    if signature_phrase in ref_texts:
+                        evidence_matched = True
+                    else:
+                        # Fallback: check individual words (at least 2 chars)
+                        for w in signature_words:
+                            w_clean = w.lower().strip(",.()")
+                            if len(w_clean) >= 3 and w_clean in ref_texts:
+                                evidence_matched = True
+                                checked_terms.append(f"partial:{w_clean}")
+                                break
 
                 lineage_log.append({
                     "name": p.get("name", ""),
