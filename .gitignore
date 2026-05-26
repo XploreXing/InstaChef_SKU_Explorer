@@ -34,12 +34,9 @@ Obsidian Vault/
 output/*.json
 
 # Runtime-generated data (not source)
-data/enriched_commodities.json
-data/pipeline_progress.json
-data/pipeline_progress.tmp
-data/pipeline_output.json
-data/evaluation_log_*.json
-data/executive_summary_*.json
+data/cache/enriched_commodities.json
+data/runtime/
+data/logs/
 
 # Jupyter
 .ipynb_checkpoints/

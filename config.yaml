@@ -66,9 +66,9 @@ search:
 
 data:
   sku_source: "local_csv"
-  sku_json_path: "data/current_skus.json"          # deprecated, kept for reference
-  sku_csv_path: "data/current_commodities.csv"
-  enriched_cache_path: "data/enriched_commodities.json"
+  sku_json_path: "data/input/current_skus.json"          # deprecated, kept for reference
+  sku_csv_path: "data/input/current_commodities.csv"
+  enriched_cache_path: "data/cache/enriched_commodities.json"
 
 orchestrator:
   max_rounds_per_cuisine: 3

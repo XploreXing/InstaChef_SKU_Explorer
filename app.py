@@ -28,8 +28,8 @@ st.set_page_config(
 # Neither st.session_state nor module-level vars survive Streamlit's
 # script-reload semantics; files written by the bg thread and read by
 # the main thread work 100% of the time.
-_PROGRESS_FILE = Path(__file__).resolve().parent / "data" / "pipeline_progress.json"
-_OUTPUT_FILE = Path(__file__).resolve().parent / "data" / "pipeline_output.json"
+_PROGRESS_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline_progress.json"
+_OUTPUT_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline_output.json"
 
 
 def _read_progress() -> dict | None:
@@ -84,6 +84,60 @@ def _save_executive_summary(output, log_dir: Path) -> Path | None:
     log_dir.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(asdict(output.executive_summary), f, ensure_ascii=False, indent=2)
+    return path
+
+
+def _save_tracing_log(output, log_dir: Path) -> Path | None:
+    """Save per-stage performance traces to a standalone JSON file."""
+    from collections import defaultdict
+    from datetime import datetime
+
+    traces: list[dict] = []
+    for cuisine, cr in output.cuisines.items():
+        for rr in cr.rounds_history:
+            stages = []
+            for t in rr.stage_traces:
+                stages.append({
+                    "stage": t.stage,
+                    "elapsed_ms": t.elapsed_ms,
+                    "elapsed_s": round(t.elapsed_ms / 1000, 1),
+                    "model_name": t.model_name,
+                    "input_size_chars": t.input_size_chars,
+                    "output_size_chars": t.output_size_chars,
+                })
+            if stages:
+                traces.append({
+                    "cuisine": cuisine,
+                    "round": rr.round_num,
+                    "total_round_s": round(rr.elapsed_seconds, 1),
+                    "stages": stages,
+                })
+
+    if not traces:
+        return None
+
+    stage_totals: dict[str, list[float]] = defaultdict(list)
+    for t in traces:
+        for s in t["stages"]:
+            stage_totals[s["stage"]].append(s["elapsed_ms"])
+
+    summary = {}
+    for stage, times in stage_totals.items():
+        avg_s = sum(times) / len(times) / 1000
+        summary[f"{stage}_avg_s"] = round(avg_s, 1)
+        summary[f"{stage}_count"] = len(times)
+        summary[f"{stage}_pct"] = round(100 * sum(times) / (output.total_elapsed_seconds * 1000), 1)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = log_dir / f"tracing_{ts}.json"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({
+            "timestamp": output.timestamp,
+            "total_elapsed_s": round(output.total_elapsed_seconds, 1),
+            "traces": traces,
+            "summary": summary,
+        }, f, ensure_ascii=False, indent=2)
     return path
 
 
@@ -405,11 +459,14 @@ def render_control_panel():
                         log("⏹️ 用户中断。已保存当前进度。")
                     else:
                         _save_output(output)
-                        log_path = _save_evaluation_log(output, Path("data"))
+                        log_path = _save_evaluation_log(output, Path("data/logs"))
                         log(f"📝 评估日志已保存: {log_path.name}")
-                        summary_path = _save_executive_summary(output, Path("data"))
+                        summary_path = _save_executive_summary(output, Path("data/logs"))
                         if summary_path:
                             log(f"📊 高管摘要已保存: {summary_path.name}")
+                        trace_path = _save_tracing_log(output, Path("data/logs"))
+                        if trace_path:
+                            log(f"⏱ 追踪日志已保存: {trace_path.name}")
                         log("🎉 搜索完成！")
                 except Exception as e:
                     state["error"] = str(e)
