@@ -33,36 +33,47 @@ search:
     - "sethlui.com"
     - "eatbook.sg"
   query_templates:
-    - "{cuisine_en} trending dishes Singapore 2026 Foodpanda"
-    - "best selling {cuisine_en} food Singapore GrabFood 2026"
-    - "{cuisine_en} food trend Singapore restaurant chain popular"
-    - "Singapore {cuisine_en} rice bowl meal prep halal"
+    - "\"{cuisine_en}\" rice bowl menu dish Singapore"
+    - "{cuisine_en} signature dishes menu items names Singapore 2026"
+    - "site:foodpanda.sg {cuisine_en} bowl halal"
+    - "\"best {cuisine_en}\" bowl Singapore restaurant dish"
   cuisine_overrides:
     Mexican:
       extra_queries:
-        - "Stuff'd burrito bowl best seller Singapore"
-        - "Guzman y Gomez Singapore menu popular items"
-        - "Mexican rice bowl chain Singapore halal"
+        - "site:stuffd.sg menu burrito bowl"
+        - "site:guzmanygomez.com.sg menu chicken beef"
+        - "Mexican halal rice bowl chain Singapore"
+        - "barbacoa tinga fajita chipotle mole Mexican dish Singapore"
     Chinese:
       extra_queries:
-        - "Din Tai Fung Singapore new menu 2026"
-        - "Crystal Jade popular dishes Singapore"
+        - "site:dintaifung.com.sg menu fried rice noodle"
+        - "site:crystaljade.com menu braised stir-fried"
+        - "Din Tai Fung Singapore new dish 2026"
+        - "mapo kungpao claypot dimsum braised Chinese dish Singapore"
     Japanese:
       extra_queries:
-        - "Japanese curry rice Singapore chain popular"
-        - "omurice Singapore Japanese food trend 2026"
+        - "site:foodpanda.sg Japanese curry rice donburi"
+        - "site:grabfood.sg Japanese teriyaki gyudon"
+        - "omurice Singapore Japanese dish 2026"
+        - "teriyaki gyudon oyakodon soba donburi Japanese dish Singapore"
     Korean:
       extra_queries:
-        - "Jinjja Chicken Singapore popular menu"
-        - "Korean stew soup Singapore food trend 2026"
+        - "site:jinjjachicken.com menu chicken dish"
+        - "site:foodpanda.sg Korean bibimbap bulgogi"
+        - "Korean jjigae stew Singapore dish 2026"
+        - "bulgogi dakgalbi tteokbokki bibimbap jjigae Korean dish Singapore"
     Thai:
       extra_queries:
-        - "Nakhon Kitchen Singapore best seller"
-        - "massaman curry Singapore Thai food trend 2026"
+        - "site:nakhonkitchen.com menu curry stir-fry"
+        - "site:foodpanda.sg Thai green red curry basil"
+        - "massaman curry Singapore Thai dish 2026"
+        - "tomyum padkrapao greencurry massaman basil Thai dish Singapore"
     Singaporean/Malay:
       extra_queries:
-        - "Encik Tan Singapore popular menu"
-        - "nasi kerabu Singapore Malay food rare"
+        - "site:enciktan.com.sg menu nasi rendang"
+        - "site:foodpanda.sg nasi lemak sambal dish"
+        - "nasi kerabu Singapore Malay dish rare"
+        - "rendang sambal nasilemak ayam ikan meegoreng Malay dish Singapore"
 
 data:
   sku_source: "local_csv"
