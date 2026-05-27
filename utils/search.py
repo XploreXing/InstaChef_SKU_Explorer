@@ -46,11 +46,21 @@ class FoodTrendSearcher:
     def build_queries(self, cuisine: str) -> list[str]:
         cuisine_en = CUSINE_EN_MAP.get(cuisine, cuisine)
         queries = []
+        # 1. General templates
         for template in self.cfg.get("query_templates", []):
             queries.append(template.format(cuisine=cuisine, cuisine_en=cuisine_en))
+        # 2. Cuisine-specific overrides
         overrides = self.cfg.get("cuisine_overrides", {}).get(cuisine, {})
         for q in overrides.get("extra_queries", []):
             queries.append(q)
+        # 3. Site-targeted queries for menu evidence
+        menu_domains = self.cfg.get("menu_domains", [])
+        site_templates = self.cfg.get("site_query_templates", [])
+        for domain in menu_domains:
+            for tpl in site_templates:
+                queries.append(
+                    tpl.format(domain=domain, cuisine=cuisine, cuisine_en=cuisine_en)
+                )
         return queries
 
     def search_cuisine(self, cuisine: str) -> list[dict]:
@@ -60,6 +70,7 @@ class FoodTrendSearcher:
             results.extend(self._do_search(query))
         results = self._deduplicate(results)
         results = self._filter_quality(results, cuisine)
+        results = self._tag_source_types(results)
         return results
 
     def _do_search(self, query: str) -> list[dict]:
@@ -123,6 +134,50 @@ class FoodTrendSearcher:
                 flush=True,
             )
         return filtered
+
+    def _classify_source(self, url: str, title: str) -> str:
+        """Classify a search result as 'menu' or 'trend' based on URL/domain signals.
+        - menu: official restaurant menu pages, /menu paths, brand domains
+        - trend: blogs, reviews, social media, ranking pages, everything else
+        """
+        url_lower = (url or "").lower()
+        title_lower = (title or "").lower()
+
+        # Menu signals
+        menu_domains = [d.lower() for d in self.cfg.get("menu_domains", [])]
+        for domain in menu_domains:
+            if domain in url_lower:
+                return "menu"
+        if "/menu" in url_lower or "/food" in url_lower:
+            return "menu"
+
+        # Trend signals
+        trend_domain_hints = [
+            "reddit", "youtube", "instagram", "tiktok", "facebook",
+            "tripadvisor", "eatbook", "misstamchiak", "sethlui",
+            "danielfooddiary", "thehoneycombers", "blog", "review",
+        ]
+        for hint in trend_domain_hints:
+            if hint in url_lower:
+                return "trend"
+
+        # Default: check title for review/ranking signals
+        review_patterns = [r"top\s+\d+", r"best\s+\d+", r"review", r"ranking"]
+        for pat in review_patterns:
+            if re.search(pat, title_lower):
+                return "trend"
+
+        return "trend"  # default fallback
+
+    def _tag_source_types(self, results: list[dict]) -> list[dict]:
+        """Add source_type and evidence_level to each result."""
+        for r in results:
+            source_type = self._classify_source(
+                r.get("url", ""), r.get("title", "")
+            )
+            r["source_type"] = source_type
+            r["evidence_level"] = "menu" if source_type == "menu" else "trend"
+        return results
 
     def _deduplicate(self, results: list[dict]) -> list[dict]:
         seen_urls = set()

@@ -127,3 +127,54 @@ def test_quality_filter_removes_low_quality():
     filtered = searcher._filter_quality(results, "Korean")
     assert len(filtered) == 1
     assert "Bulgogi" in filtered[0]["title"]
+
+
+def test_classify_menu_source():
+    """Brand menu domains should classify as menu."""
+    config = {"search": {"menu_domains": ["stuffd.sg", "guzmanygomez.com.sg"]}}
+    searcher = FoodTrendSearcher(config)
+    assert searcher._classify_source("https://stuffd.sg/menu/burrito", "Stuff'd Menu") == "menu"
+    assert searcher._classify_source("https://guzmanygomez.com.sg/food", "Guzman Menu") == "menu"
+
+
+def test_classify_trend_source():
+    """Blog and review URLs should classify as trend."""
+    config = {"search": {"menu_domains": ["stuffd.sg"]}}
+    searcher = FoodTrendSearcher(config)
+    assert searcher._classify_source("https://eatbook.sg/best-mexican", "Top 10 Mexican") == "trend"
+    assert searcher._classify_source("https://reddit.com/r/singapore", "Best food") == "trend"
+    assert searcher._classify_source("https://misstamchiak.com/review", "Review: Mexican") == "trend"
+
+
+def test_tag_source_types():
+    """Results should get source_type and evidence_level fields."""
+    config = {"search": {"menu_domains": ["stuffd.sg"]}}
+    searcher = FoodTrendSearcher(config)
+    results = [
+        {"title": "Menu", "url": "https://stuffd.sg/menu", "content": "test"},
+        {"title": "Best Food", "url": "https://eatbook.sg/review", "content": "test"},
+    ]
+    tagged = searcher._tag_source_types(results)
+    assert tagged[0]["source_type"] == "menu"
+    assert tagged[0]["evidence_level"] == "menu"
+    assert tagged[1]["source_type"] == "trend"
+    assert tagged[1]["evidence_level"] == "trend"
+
+
+def test_build_queries_includes_site_templates():
+    """Build queries should include site:domain queries for menu domains."""
+    config = {
+        "search": {
+            "provider": "tavily",
+            "api_key_env": "KEY",
+            "max_results_per_query": 5,
+            "query_templates": ["{cuisine_en} food Singapore"],
+            "site_query_templates": ['site:{domain} "{cuisine_en}" menu'],
+            "menu_domains": ["stuffd.sg"],
+            "cuisine_overrides": {},
+        }
+    }
+    searcher = FoodTrendSearcher(config)
+    queries = searcher.build_queries("Mexican")
+    assert len(queries) >= 2  # general + site query
+    assert any("site:stuffd.sg" in q for q in queries)

@@ -19,6 +19,18 @@ search:
   max_results_per_query: 5
   region: "sg"
   time_range: "month"
+  site_query_templates:
+    - "site:{domain} \"{cuisine_en}\" Singapore menu"
+    - "site:{domain} \"{cuisine_en}\" dishes Singapore"
+    - "site:{domain} \"{cuisine_en}\" bowl Singapore"
+  menu_domains:
+    - guzmanygomez.com.sg
+    - stuffd.sg
+    - jinjjachicken.com
+    - nakhonkitchen.com
+    - dintaifung.com.sg
+    - crystaljade.com
+    - enciktan.com.sg
   target_domains:
     - "foodpanda.sg"
     - "grabfood.sg"
