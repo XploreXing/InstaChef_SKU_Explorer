@@ -34,9 +34,8 @@ search:
     - "sethlui.com"
     - "eatbook.sg"
   site_query_templates:
-    - "site:{domain} \"{cuisine_en}\" Singapore menu"
-    - "site:{domain} \"{cuisine_en}\" dishes Singapore"
-    - "site:{domain} \"{cuisine_en}\" bowl Singapore"
+    - "site:{domain} {cuisine_en} menu"
+    - "site:{domain} {cuisine_en} bowl"
   menu_domains:
     - guzmanygomez.com.sg
     - stuffd.sg
@@ -46,10 +45,10 @@ search:
     - crystaljade.com
     - enciktan.com.sg
   query_templates:
-    - "\"{cuisine_en}\" rice bowl menu dish Singapore"
-    - "{cuisine_en} signature dishes menu items names Singapore 2026"
-    - "site:foodpanda.sg {cuisine_en} bowl halal"
-    - "\"best {cuisine_en}\" bowl Singapore restaurant dish"
+    - "{cuisine_en} popular dishes Singapore"
+    - "{cuisine_en} signature dishes Singapore"
+    - "{cuisine_en} classic dishes Singapore"
+    - "{cuisine_en} menu Singapore"
   cuisine_overrides:
     Mexican:
       extra_queries:
