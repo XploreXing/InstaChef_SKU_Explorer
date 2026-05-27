@@ -33,17 +33,6 @@ search:
     - "misstamchiak.com"
     - "sethlui.com"
     - "eatbook.sg"
-  site_query_templates:
-    - "site:{domain} {cuisine_en} menu"
-    - "site:{domain} {cuisine_en} bowl"
-  menu_domains:
-    - guzmanygomez.com.sg
-    - stuffd.sg
-    - jinjjachicken.com
-    - nakhonkitchen.com
-    - dintaifung.com.sg
-    - crystaljade.com
-    - enciktan.com.sg
   query_templates:
     - "{cuisine_en} popular dishes Singapore"
     - "{cuisine_en} signature dishes Singapore"
@@ -52,39 +41,33 @@ search:
   cuisine_overrides:
     Mexican:
       extra_queries:
-        - "site:stuffd.sg menu burrito bowl"
-        - "site:guzmanygomez.com.sg menu chicken beef"
-        - "Mexican halal rice bowl chain Singapore"
+        - "site:stuffd.sg menu"
+        - "site:guzmanygomez.com.sg menu"
         - "barbacoa tinga fajita chipotle mole Mexican dish Singapore"
     Chinese:
       extra_queries:
-        - "site:dintaifung.com.sg menu fried rice noodle"
-        - "site:crystaljade.com menu braised stir-fried"
-        - "Din Tai Fung Singapore new dish 2026"
+        - "site:dintaifung.com.sg menu"
+        - "site:crystaljade.com menu"
         - "mapo kungpao claypot dimsum braised Chinese dish Singapore"
     Japanese:
       extra_queries:
         - "site:foodpanda.sg Japanese curry rice donburi"
         - "site:grabfood.sg Japanese teriyaki gyudon"
-        - "omurice Singapore Japanese dish 2026"
         - "teriyaki gyudon oyakodon soba donburi Japanese dish Singapore"
     Korean:
       extra_queries:
-        - "site:jinjjachicken.com menu chicken dish"
+        - "site:jinjjachicken.com menu"
         - "site:foodpanda.sg Korean bibimbap bulgogi"
-        - "Korean jjigae stew Singapore dish 2026"
         - "bulgogi dakgalbi tteokbokki bibimbap jjigae Korean dish Singapore"
     Thai:
       extra_queries:
-        - "site:nakhonkitchen.com menu curry stir-fry"
+        - "site:nakhonkitchen.com menu"
         - "site:foodpanda.sg Thai green red curry basil"
-        - "massaman curry Singapore Thai dish 2026"
         - "tomyum padkrapao greencurry massaman basil Thai dish Singapore"
     Singaporean/Malay:
       extra_queries:
-        - "site:enciktan.com.sg menu nasi rendang"
+        - "site:enciktan.com.sg menu"
         - "site:foodpanda.sg nasi lemak sambal dish"
-        - "nasi kerabu Singapore Malay dish rare"
         - "rendang sambal nasilemak ayam ikan meegoreng Malay dish Singapore"
 
 data:
