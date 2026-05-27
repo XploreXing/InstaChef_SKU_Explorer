@@ -70,7 +70,7 @@ class TestSearchRefTagging:
             config = yaml.safe_load(f)
 
         searcher = FoodTrendSearcher(config)
-        summary, ref_map, ref_contents = searcher.summarize_for_generator(
+        summary, ref_map, ref_contents, ref_source_types = searcher.summarize_for_generator(
             [
                 {"title": "Test Article", "url": "https://example.com/1", "content": "Interesting food trend."},
                 {"title": "Another Article", "url": "https://example.com/2", "content": "Popular dish."},
@@ -93,7 +93,7 @@ class TestSearchRefTagging:
             config = yaml.safe_load(f)
 
         searcher = FoodTrendSearcher(config)
-        summary, ref_map, ref_contents = searcher.summarize_for_generator([], "Test")
+        summary, ref_map, ref_contents, ref_source_types = searcher.summarize_for_generator([], "Test")
 
         assert isinstance(summary, str)
         assert ref_map == {}

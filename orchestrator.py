@@ -99,7 +99,7 @@ class Orchestrator:
         })
         # Trace: summarize
         t_summarize = time.time()
-        search_summary, ref_map, ref_contents = self.searcher.summarize_for_generator(
+        search_summary, ref_map, ref_contents, ref_source_types = self.searcher.summarize_for_generator(
             search_results, cuisine
         )
         trace_summarize = StageTrace(
@@ -157,47 +157,66 @@ class Orchestrator:
                 refs = p.get("source_refs", [])
                 valid = bool(refs) and all(r in ref_map for r in refs)
 
-                # Evidence match: take first ~60% of dish name words as
-                # the "signature phrase", check if it appears in search content
-                evidence_matched = False
+                # --- Dual-evidence check ---
+                dish_name_matched = False
+                trend_matched = False
+                evidence_level = "none"
                 checked_terms: list[str] = []
-                if valid and ref_contents:
-                    name = p.get("name", "")
-                    words = name.split()
-                    if not words:
-                        words = [name]
 
-                    # Take first ~60% of words (min 1, rounded up)
-                    n = max(1, -(-len(words) * 3 // 5))  # ceil(60%)
+                if valid and ref_contents:
+                    # Determine best source type among referenced results
+                    ref_types = [
+                        ref_source_types.get(r, "trend") for r in refs
+                        if r in ref_source_types
+                    ]
+                    has_menu = "menu" in ref_types
+                    evidence_level = "menu" if has_menu else "trend"
+
+                    # Dish name match: signature phrase (first 60% words)
+                    name = p.get("name", "")
+                    words = name.split() or [name]
+                    n = max(1, -(-len(words) * 3 // 5))
                     signature_words = words[:n]
                     signature_phrase = " ".join(
                         w.lower().strip(",.()") for w in signature_words
                     )
+                    checked_terms.append(f"dish:{signature_phrase}")
 
                     ref_texts = " ".join(
                         ref_contents.get(r, "") for r in refs if r in ref_contents
                     ).lower()
 
-                    checked_terms = [signature_phrase]
-
-                    # Match: does the signature phrase appear in search content?
                     if signature_phrase in ref_texts:
-                        evidence_matched = True
+                        dish_name_matched = True
                     else:
-                        # Fallback: check individual words (at least 2 chars)
                         for w in signature_words:
                             w_clean = w.lower().strip(",.()")
                             if len(w_clean) >= 3 and w_clean in ref_texts:
-                                evidence_matched = True
+                                dish_name_matched = True
                                 checked_terms.append(f"partial:{w_clean}")
                                 break
+
+                    # Trend match: cuisine name, food-type keywords (loose)
+                    trend_signals = [
+                        cuisine.lower(),
+                        cuisine.lower().split("/")[0].strip(),
+                        "rice", "bowl", "noodle", "grilled", "braised",
+                        "curry", "spicy", "halal",
+                    ]
+                    for ts in trend_signals:
+                        if ts in ref_texts:
+                            trend_matched = True
+                            checked_terms.append(f"trend:{ts}")
+                            break  # one trend signal is enough
 
                 lineage_log.append({
                     "name": p.get("name", ""),
                     "name_cn": p.get("name_cn", ""),
                     "source_refs": refs,
                     "validated": valid,
-                    "evidence_matched": evidence_matched,
+                    "evidence_level": evidence_level,
+                    "dish_name_matched": dish_name_matched,
+                    "trend_matched": trend_matched,
                     "checked_terms": checked_terms,
                     "ref_urls": {r: ref_map[r] for r in refs if r in ref_map} if valid else {},
                 })

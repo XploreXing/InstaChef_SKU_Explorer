@@ -56,7 +56,7 @@ def test_build_queries_no_overrides():
 def test_summarize_for_generator_empty():
     config = {"search": {"provider": "tavily", "api_key_env": "KEY"}}
     searcher = FoodTrendSearcher(config)
-    summary, ref_map, ref_contents = searcher.summarize_for_generator([], "Chinese")
+    summary, ref_map, ref_contents, ref_source_types = searcher.summarize_for_generator([], "Chinese")
     assert "No external trend data found" in summary
     assert ref_map == {}
     assert ref_contents == {}
@@ -69,7 +69,7 @@ def test_summarize_for_generator_with_results():
         {"title": "Din Tai Fung Signature Dishes", "url": "https://example.com/1", "content": "Din Tai Fung new menu launched with spicy dishes and signature rice bowls with braised pork."},
         {"title": "Foodpanda Chinese Menu Items", "url": "https://example.com/2", "content": "Sichuan mala stir-fried noodle dishes growing popular in Singapore restaurants."},
     ]
-    summary, ref_map, ref_contents = searcher.summarize_for_generator(results, "Chinese")
+    summary, ref_map, ref_contents, ref_source_types = searcher.summarize_for_generator(results, "Chinese")
     assert "Din Tai Fung" in summary
     assert "[REF_01]" in summary
     assert "[REF_02]" in summary
@@ -78,6 +78,7 @@ def test_summarize_for_generator_with_results():
     assert ref_map["REF_01"] == "https://example.com/1"
     assert ref_map["REF_02"] == "https://example.com/2"
     assert "Din Tai Fung" in ref_contents["REF_01"]
+    assert ref_source_types["REF_01"] == "trend"
 
 
 def test_quality_scoring_dish_content():
