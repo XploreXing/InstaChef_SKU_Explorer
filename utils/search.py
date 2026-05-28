@@ -206,7 +206,7 @@ class FoodTrendSearcher:
         for i, r in enumerate(results):
             tag = f"REF_{i + 1:02d}"
             ref_map[tag] = r.get("url", "")
-            content = r.get("content", "")[:300]
+            content = r.get("content", "")[:800]
             ref_contents[tag] = content
             ref_source_types[tag] = r.get("source_type", "trend")
             lines.append(

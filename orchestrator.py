@@ -184,18 +184,34 @@ class Orchestrator:
                     )
                     checked_terms.append(f"dish:{signature_phrase}")
 
+                    evidence_hits: list[dict] = []
                     ref_texts = " ".join(
                         ref_contents.get(r, "") for r in refs if r in ref_contents
                     ).lower()
 
                     if signature_phrase in ref_texts:
                         dish_name_matched = True
+                        # Extract snippet around matched phrase
+                        idx = ref_texts.find(signature_phrase)
+                        start = max(0, idx - 40)
+                        end = min(len(ref_texts), idx + len(signature_phrase) + 40)
+                        evidence_hits.append({
+                            "term": signature_phrase,
+                            "snippet": ref_texts[start:end],
+                        })
                     else:
                         for w in signature_words:
                             w_clean = w.lower().strip(",.()")
                             if len(w_clean) >= 3 and w_clean in ref_texts:
                                 dish_name_matched = True
                                 checked_terms.append(f"partial:{w_clean}")
+                                idx = ref_texts.find(w_clean)
+                                start = max(0, idx - 40)
+                                end = min(len(ref_texts), idx + len(w_clean) + 40)
+                                evidence_hits.append({
+                                    "term": w_clean,
+                                    "snippet": ref_texts[start:end],
+                                })
                                 break
 
                     # Trend match: cuisine name, food-type keywords (loose)
@@ -220,6 +236,7 @@ class Orchestrator:
                     "dish_name_matched": dish_name_matched,
                     "trend_matched": trend_matched,
                     "checked_terms": checked_terms,
+                    "evidence_hits": evidence_hits,
                     "ref_urls": {r: ref_map[r] for r in refs if r in ref_map} if valid else {},
                 })
                 if not valid:
