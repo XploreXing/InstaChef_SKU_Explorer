@@ -64,6 +64,7 @@ class FoodTrendSearcher:
         return queries
 
     def search_cuisine(self, cuisine: str) -> list[dict]:
+        # --- Hop 1: broad cuisine discovery ---
         queries = self.build_queries(cuisine)
         results = []
         for query in queries:
@@ -71,6 +72,26 @@ class FoodTrendSearcher:
         results = self._deduplicate(results)
         results = self._filter_quality(results, cuisine)
         results = self._tag_source_types(results)
+
+        # --- Hop 2: targeted restaurant-menu deep search ---
+        restaurants = self._extract_restaurant_names(results, cuisine)
+        if restaurants:
+            print(
+                f"  [search] Hop 2: deep-searching {len(restaurants)} restaurants "
+                f"for {cuisine}: {restaurants[:3]}...",
+                flush=True,
+            )
+            hop2_results = []
+            for name in restaurants[:5]:
+                for q in self._build_hop2_queries(name, cuisine):
+                    hop2_results.extend(self._do_search(q))
+            hop2_results = self._deduplicate(hop2_results)
+            for r in hop2_results:
+                r["source_type"] = "menu"
+                r["evidence_level"] = "menu"
+                r["hop"] = 2
+            results = results + hop2_results
+
         return results
 
     def _do_search(self, query: str) -> list[dict]:
@@ -178,6 +199,52 @@ class FoodTrendSearcher:
             r["source_type"] = source_type
             r["evidence_level"] = "menu" if source_type == "menu" else "trend"
         return results
+
+    def _extract_restaurant_names(self, results: list[dict], cuisine: str) -> list[str]:
+        """Extract candidate restaurant names from Hop 1 results."""
+        candidates: dict[str, int] = {}
+        noise_words = {"best", "top", "review", "menu", "food", "restaurant",
+                       "singapore", "delivery", "price", "rating", "available",
+                       "near", "check", "found", "new", "must", "try", "where",
+                       cuisine.lower()}
+
+        for r in results:
+            title = (r.get("title", "") or "")
+            content = (r.get("content", "") or "")
+            combined = f"{title} {content}"
+
+            # Pattern: "Name at Location" or "Name, Location – ..."
+            for m in re.finditer(
+                r"([A-Z][a-z]+(?:['’]s)?(?:\s+(?:&|[A-Z][a-z]+(?:['’]s)?|de|la|el|y|del)){0,4})"
+                r"\s+(?:at|in|–|-|—|,)\s+",
+                combined,
+            ):
+                name = m.group(1).strip()
+                words_in_name = set(name.lower().split())
+                if len(name) > 3 and not words_in_name & noise_words:
+                    candidates[name] = candidates.get(name, 0) + 2
+
+            # Pattern: @handle
+            for m in re.finditer(r"@(\w{3,})", combined):
+                candidates[m.group(1)] = candidates.get(m.group(1), 0) + 2
+
+        # Filter and rank
+        ranked = sorted(candidates.items(), key=lambda x: -x[1])
+        result = []
+        for name, score in ranked:
+            if score >= 2 and len(name) >= 4:
+                if not any(name.lower() in e.lower() or e.lower() in name.lower()
+                           for e in result):
+                    result.append(name)
+        return result[:5]
+
+    def _build_hop2_queries(self, restaurant: str, cuisine: str) -> list[str]:
+        """Build targeted deep-search queries for a specific restaurant."""
+        return [
+            f'"{restaurant}" menu Singapore',
+            f'"{restaurant}" {cuisine} dishes',
+            f'"{restaurant}" signature best seller',
+        ]
 
     def _deduplicate(self, results: list[dict]) -> list[dict]:
         seen_urls = set()

@@ -227,6 +227,12 @@ class Orchestrator:
                             checked_terms.append(f"trend:{ts}")
                             break  # one trend signal is enough
 
+                # Determine if any referenced source came from Hop 2 (menu deep-search)
+                hop2_count = sum(
+                    1 for r in refs
+                    if r in ref_contents and ref_source_types.get(r) == "menu"
+                )
+
                 lineage_log.append({
                     "name": p.get("name", ""),
                     "name_cn": p.get("name_cn", ""),
@@ -235,6 +241,7 @@ class Orchestrator:
                     "evidence_level": evidence_level,
                     "dish_name_matched": dish_name_matched,
                     "trend_matched": trend_matched,
+                    "hop2_refs": hop2_count,
                     "checked_terms": checked_terms,
                     "evidence_hits": evidence_hits,
                     "ref_urls": {r: ref_map[r] for r in refs if r in ref_map} if valid else {},
