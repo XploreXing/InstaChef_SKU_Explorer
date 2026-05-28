@@ -20,19 +20,6 @@ search:
   region: "sg"
   time_range: "month"
   
-  target_domains:
-    - "foodpanda.sg"
-    - "grabfood.sg"
-    - "stuffd.sg"
-    - "guzmanygomez.com.sg"
-    - "jinjjachicken.com"
-    - "nakhonkitchen.com"
-    - "enciktan.com.sg"
-    - "dintaifung.com.sg"
-    - "crystaljade.com"
-    - "misstamchiak.com"
-    - "sethlui.com"
-    - "eatbook.sg"
   query_templates:
     - "{cuisine_en} popular dishes Singapore"
     - "{cuisine_en} signature dishes Singapore"
