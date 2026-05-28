@@ -28,34 +28,28 @@ search:
   cuisine_overrides:
     Mexican:
       extra_queries:
-        - "site:stuffd.sg menu"
-        - "site:guzmanygomez.com.sg menu"
-        - "barbacoa tinga fajita chipotle mole Mexican dish Singapore"
+        - "barbacoa tinga fajita chipotle mole adobo carnitas Mexican dish Singapore"
+        - "burrito bowl enchilada quesadilla Mexican rice bowl halal Singapore"
     Chinese:
       extra_queries:
-        - "site:dintaifung.com.sg menu"
-        - "site:crystaljade.com menu"
-        - "mapo kungpao claypot dimsum braised Chinese dish Singapore"
+        - "mapo kungpao claypot dimsum braised stir-fried wok hei Chinese dish Singapore"
+        - "fried rice noodle soup dumpling Hokkien mee Chinese dish Singapore"
     Japanese:
       extra_queries:
-        - "site:foodpanda.sg Japanese curry rice donburi"
-        - "site:grabfood.sg Japanese teriyaki gyudon"
-        - "teriyaki gyudon oyakodon soba donburi Japanese dish Singapore"
+        - "teriyaki gyudon oyakodon soba donburi miso grilled Japanese dish Singapore"
+        - "curry rice katsu bowl omurice Japanese halal dish Singapore"
     Korean:
       extra_queries:
-        - "site:jinjjachicken.com menu"
-        - "site:foodpanda.sg Korean bibimbap bulgogi"
-        - "bulgogi dakgalbi tteokbokki bibimbap jjigae Korean dish Singapore"
+        - "bulgogi dakgalbi tteokbokki bibimbap jjigae gochujang Korean dish Singapore"
+        - "grilled marinated braised stew rice bowl Korean halal Singapore"
     Thai:
       extra_queries:
-        - "site:nakhonkitchen.com menu"
-        - "site:foodpanda.sg Thai green red curry basil"
-        - "tomyum padkrapao greencurry massaman basil Thai dish Singapore"
+        - "tomyum padkrapao greencurry massaman basil lemongrass Thai dish Singapore"
+        - "stir-fried coconut milk curry rice bowl Thai halal Singapore"
     Singaporean/Malay:
       extra_queries:
-        - "site:enciktan.com.sg menu"
-        - "site:foodpanda.sg nasi lemak sambal dish"
-        - "rendang sambal nasilemak ayam ikan meegoreng Malay dish Singapore"
+        - "rendang sambal nasilemak ayam ikan meegoreng laksa Malay dish Singapore"
+        - "braised coconut spice sambal rice bowl halal Singapore"
 
 data:
   sku_source: "local_csv"
