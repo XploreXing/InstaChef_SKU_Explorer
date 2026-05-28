@@ -84,6 +84,8 @@ class Orchestrator:
         # Trace: search
         t_search = time.time()
         search_results = self.searcher.search_cuisine(cuisine)
+        # Save raw search snippets for validation
+        self._save_search_snippets(cuisine, search_results)
         trace_search = StageTrace(
             stage="search",
             elapsed_ms=(time.time() - t_search) * 1000,
@@ -639,6 +641,35 @@ Output JSON:
                 risk_direction="(LLM summary unavailable)",
                 top_recommendations=top_passed,
             )
+
+    def _save_search_snippets(self, cuisine: str, results: list[dict]):
+        """Persist raw Tavily search snippets for validation."""
+        import json as _json
+        from datetime import datetime
+        from pathlib import Path
+
+        log_dir = Path("data/logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = log_dir / f"search_snippets_{ts}.json"
+
+        snippets = []
+        for r in results:
+            snippets.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", "")[:500],
+                "source_type": r.get("source_type", "trend"),
+                "evidence_level": r.get("evidence_level", "trend"),
+            })
+
+        with open(path, "w") as f:
+            _json.dump({
+                "timestamp": ts,
+                "cuisine": cuisine,
+                "total_results": len(snippets),
+                "snippets": snippets,
+            }, f, ensure_ascii=False, indent=2)
 
     def _emit(self, cuisine: str, round_num: int, phase: str, meta: dict):
         for cb in self.state_callbacks.get("on_state_change", []):
