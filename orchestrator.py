@@ -147,10 +147,12 @@ class Orchestrator:
             # Trace: generate
             t_gen = time.time()
             locked_names = [e.proposal.name for e in locked]
-            # Inject HITL feedback summary into Generator prompt (capped at 500 chars)
+            # Inject HITL feedback summary into Generator prompt
             augmented_search = search_summary
             if feedback_summary:
-                augmented_search = search_summary + "\n" + feedback_summary[:500]
+                # Trim search summary to make room for feedback (keep ~3000 chars)
+                trimmed = search_summary[:3000] if len(search_summary) > 3000 else search_summary
+                augmented_search = trimmed + "\n" + feedback_summary[:500]
 
             proposal_dicts = self.generator.generate(
                 cuisine=cuisine,
