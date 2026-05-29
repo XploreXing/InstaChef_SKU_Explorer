@@ -150,6 +150,48 @@ class Orchestrator:
             if not proposal_dicts:
                 break
 
+            # --- HITL Blacklist: fast-fail on previously rejected dishes ---
+            hitl_vetoed: list[EvaluationResult] = []
+            try:
+                from pathlib import Path as _Path
+                from app import _load_all_rejections
+                all_rejections = _load_all_rejections(_Path("data/feedback"))
+            except Exception:
+                all_rejections = []
+
+            for p in proposal_dicts:
+                name = p.get("name", "")
+                p_words = set(name.lower().split())
+                if not p_words:
+                    continue
+                for r in all_rejections:
+                    r_words = set(r.get("proposal_name", "").lower().split())
+                    overlap = len(p_words & r_words) / max(len(p_words), 1)
+                    if overlap > 0.4 and r.get("cuisine") == cuisine:
+                        hitl_vetoed.append(EvaluationResult(
+                            proposal=DishProposal(
+                                id=p.get("id", 0),
+                                name=name,
+                                name_cn=p.get("name_cn", ""),
+                                cuisine=cuisine,
+                                price_sgd=p.get("price_sgd", 0),
+                                description=p.get("description", ""),
+                                description_cn=p.get("description_cn", ""),
+                                differentiation=p.get("differentiation", ""),
+                                trend_source=p.get("trend_source", ""),
+                                source_refs=p.get("source_refs", []),
+                            ),
+                            vetoed=True,
+                            veto_reason=f"HITL黑名单：{r.get('reason_label','?')}（曾于{r.get('timestamp','?')}被拒绝）",
+                            cuisine_blue_ocean=0,
+                            trend_heat=0,
+                            hawker_substitutability=0,
+                            total_score=0,
+                            passed=False,
+                            reasoning="HITL 反馈黑名单 — Fast-Failure 拦截",
+                        ))
+                        break  # one match is enough
+
             # --- Task 4: Source-ref lineage validation (fast-fail hallucinations) ---
             lineage_vetoed: list[EvaluationResult] = []
             validated_proposals: list[dict] = []
@@ -347,6 +389,23 @@ class Orchestrator:
 
             # Trace: evaluate
             t_eval = time.time()
+            # Build HITL RAG context for this cuisine
+            cuisine_rejections = [
+                r for r in all_rejections if r.get("cuisine") == cuisine
+            ]
+            hitl_context = ""
+            if cuisine_rejections:
+                lines = [
+                    "\n## HITL Feedback: Previously Rejected Proposals",
+                    "These dishes were rejected by human experts. Be extra vigilant for similar patterns:\n"
+                ]
+                for r in cuisine_rejections[-10:]:
+                    lines.append(
+                        f"- 「{r.get('proposal_name_cn', r.get('proposal_name', ''))}」"
+                        f"→ {r.get('reason_label', '')}"
+                    )
+                hitl_context = "\n".join(lines)
+
             if guard_passed_proposals:
                 evaluations_raw, summary, suggestions = self.evaluator.evaluate(
                     proposals=guard_passed_proposals,
@@ -355,6 +414,7 @@ class Orchestrator:
                     locked_count=len(locked),
                     remaining=remaining,
                     pass_threshold=current_threshold,
+                    hitl_context=hitl_context,
                 )
 
                 if evaluations_raw:
@@ -375,8 +435,8 @@ class Orchestrator:
                 output_size_chars=sum(len(str(e)) for e in llm_results),
             )
 
-            # Combine: lineage-vetoed + guard-vetoed + LLM-evaluated
-            evaluation_results = lineage_vetoed + guard_vetoed + llm_results
+            # Combine: HITL-vetoed + lineage-vetoed + guard-vetoed + LLM-evaluated
+            evaluation_results = hitl_vetoed + lineage_vetoed + guard_vetoed + llm_results
 
             # JUDGING — apply evidence penalty before pass/fail
             self.state = OrchestratorState.JUDGING

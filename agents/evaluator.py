@@ -34,6 +34,7 @@ def build_evaluator_user_message(
     locked_count: int,
     remaining: int,
     pass_threshold: int = 80,
+    hitl_context: str = "",
 ) -> str:
     parts = [
         f"## Current InstaChef SKU Catalog ({len(existing_skus)} total SKUs)",
@@ -46,11 +47,17 @@ def build_evaluator_user_message(
         f"Round {round_num} of 3 for this cuisine.",
         f"Currently {locked_count} accepted, need {remaining} more.",
         f"Pass threshold: total_score >= {pass_threshold} to mark passed=true.",
+    ]
+
+    if hitl_context:
+        parts.append(hitl_context)
+
+    parts.extend([
         "",
         "Evaluate each proposal against the 4 hard constraints first.",
         "If any constraint fails, mark as vetoed with score 0.",
         "Only score the 3 dimensions if ALL constraints pass.",
-    ]
+    ])
     return "\n".join(parts)
 
 
@@ -72,6 +79,7 @@ class EvaluatorAgent:
         locked_count: int = 0,
         remaining: int = 10,
         pass_threshold: int = 80,
+        hitl_context: str = "",
     ) -> tuple[list[dict], dict, str]:
         user_message = build_evaluator_user_message(
             proposals=proposals,
@@ -80,6 +88,7 @@ class EvaluatorAgent:
             locked_count=locked_count,
             remaining=remaining,
             pass_threshold=pass_threshold,
+            hitl_context=hitl_context,
         )
 
         try:

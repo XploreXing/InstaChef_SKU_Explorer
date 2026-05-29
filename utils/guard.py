@@ -128,3 +128,41 @@ class HardConstraintGuard:
             return False, reason
 
         return True, ""
+
+
+def get_guard_growth_suggestions(rejections: list[dict]) -> dict:
+    """Analyze HITL feedback and propose guard rule updates.
+    Returns {rule_type: [suggested_words_to_add]}.
+    Only triggers when same reason appears >= 3 times."""
+    from collections import Counter
+
+    reasons = Counter(r.get("reason_code", "") for r in rejections)
+    suggestions: dict[str, list[str]] = {}
+
+    for reason, count in reasons.items():
+        if count < 3:
+            continue
+
+        if reason == "cold_food":
+            words = set()
+            for r in rejections:
+                if r.get("reason_code") == "cold_food":
+                    for w in r.get("proposal_name", "").lower().split():
+                        w_clean = w.strip(",.()")
+                        if len(w_clean) > 3:
+                            words.add(w_clean)
+            if words:
+                suggestions["kill_words"] = sorted(words)
+
+        elif reason == "non_halal":
+            words = set()
+            for r in rejections:
+                if r.get("reason_code") == "non_halal":
+                    for w in r.get("proposal_name", "").lower().split():
+                        w_clean = w.strip(",.()")
+                        if len(w_clean) > 3:
+                            words.add(w_clean)
+            if words:
+                suggestions["haram_words"] = sorted(words)
+
+    return suggestions
