@@ -142,6 +142,26 @@ class TestKillCheck:
         assert not passed
 
 
+    def test_mango_bowl_triggers_veto(self):
+        passed, reason = HardConstraintGuard.precheck({
+            "name": "Mexican Shrimp & Mango Bowl",
+            "name_cn": "墨西哥鲜虾芒果碗",
+            "description": "Fresh mango and shrimp on rice",
+            "description_cn": "新鲜芒果和虾配饭",
+        })
+        assert not passed
+        assert "芒果" in reason or "mango" in reason.lower()
+
+    def test_smoothie_bowl_triggers_veto(self):
+        passed, reason = HardConstraintGuard.precheck({
+            "name": "Acai Smoothie Bowl",
+            "name_cn": "果昔碗",
+            "description": "Cold smoothie bowl",
+            "description_cn": "冷果昔碗",
+        })
+        assert not passed
+
+
 class TestCombined:
     def test_both_violations_reports_haram_first(self):
         """Haram check takes priority over kill check."""

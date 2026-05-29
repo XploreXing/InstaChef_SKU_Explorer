@@ -22,6 +22,11 @@ KILL_WORDS = [
     "冷", "冻",
     "生食", "刺身", "sashimi",
     "冰淇淋", "ice cream",
+    # Fruit-based cold preparations
+    "芒果碗", "mango bowl",
+    "水果碗", "fruit bowl",
+    "果昔碗", "smoothie bowl",
+    "酸奶碗", "yogurt bowl",
 ]
 
 # Words that indicate the dish REQUIRES cold serving
