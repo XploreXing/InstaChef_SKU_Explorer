@@ -25,6 +25,7 @@ search:
     - "{cuisine_en} signature dishes Singapore"
     - "{cuisine_en} classic dishes Singapore"
     - "{cuisine_en} menu Singapore"
+    - "{cuisine_en} dish review blog guide Singapore"
   cuisine_overrides:
     Mexican:
       extra_queries:
