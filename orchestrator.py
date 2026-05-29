@@ -130,10 +130,15 @@ class Orchestrator:
             # Trace: generate
             t_gen = time.time()
             locked_names = [e.proposal.name for e in locked]
+            # Inject HITL feedback summary into Generator prompt
+            augmented_search = search_summary
+            if feedback_summary:
+                augmented_search = search_summary + "\n" + feedback_summary
+
             proposal_dicts = self.generator.generate(
                 cuisine=cuisine,
                 count=remaining + 5,
-                search_summary=search_summary,
+                search_summary=augmented_search,
                 feedback=feedback,
                 locked_names=locked_names,
                 round_num=round_num,
@@ -150,47 +155,48 @@ class Orchestrator:
             if not proposal_dicts:
                 break
 
-            # --- HITL Blacklist: fast-fail on previously rejected dishes ---
+            # --- HITL Blacklist: deterministic name match on rejected dishes ---
             hitl_vetoed: list[EvaluationResult] = []
+            all_rejections: list[dict] = []
             try:
                 from pathlib import Path as _Path
-                from utils.feedback_loader import load_all_rejections
+                from utils.feedback_loader import (
+                    load_all_rejections, build_blacklist,
+                    build_feedback_summary, _normalize_name,
+                )
                 all_rejections = load_all_rejections(_Path("data/feedback"))
+                blacklist = build_blacklist(all_rejections, cuisine)
+                feedback_summary = build_feedback_summary(all_rejections, cuisine)
             except Exception:
-                all_rejections = []
+                blacklist = set()
+                feedback_summary = ""
 
             for p in proposal_dicts:
                 name = p.get("name", "")
-                p_words = set(name.lower().split())
-                if not p_words:
-                    continue
-                for r in all_rejections:
-                    r_words = set(r.get("proposal_name", "").lower().split())
-                    overlap = len(p_words & r_words) / max(len(p_words), 1)
-                    if overlap > 0.4 and r.get("cuisine") == cuisine:
-                        hitl_vetoed.append(EvaluationResult(
-                            proposal=DishProposal(
-                                id=p.get("id", 0),
-                                name=name,
-                                name_cn=p.get("name_cn", ""),
-                                cuisine=cuisine,
-                                price_sgd=p.get("price_sgd", 0),
-                                description=p.get("description", ""),
-                                description_cn=p.get("description_cn", ""),
-                                differentiation=p.get("differentiation", ""),
-                                trend_source=p.get("trend_source", ""),
-                                source_refs=p.get("source_refs", []),
-                            ),
-                            vetoed=True,
-                            veto_reason=f"HITL黑名单：{r.get('reason_label','?')}（曾于{r.get('timestamp','?')}被拒绝）",
-                            cuisine_blue_ocean=0,
-                            trend_heat=0,
-                            hawker_substitutability=0,
-                            total_score=0,
-                            passed=False,
-                            reasoning="HITL 反馈黑名单 — Fast-Failure 拦截",
-                        ))
-                        break  # one match is enough
+                normalized = _normalize_name(name, sort_tokens=True)
+                if normalized and normalized in blacklist:
+                    hitl_vetoed.append(EvaluationResult(
+                        proposal=DishProposal(
+                            id=p.get("id", 0),
+                            name=name,
+                            name_cn=p.get("name_cn", ""),
+                            cuisine=cuisine,
+                            price_sgd=p.get("price_sgd", 0),
+                            description=p.get("description", ""),
+                            description_cn=p.get("description_cn", ""),
+                            differentiation=p.get("differentiation", ""),
+                            trend_source=p.get("trend_source", ""),
+                            source_refs=p.get("source_refs", []),
+                        ),
+                        vetoed=True,
+                        veto_reason="HITL黑名单：确定性去重（此前被人工拒绝）",
+                        cuisine_blue_ocean=0,
+                        trend_heat=0,
+                        hawker_substitutability=0,
+                        total_score=0,
+                        passed=False,
+                        reasoning="HITL 反馈黑名单 — 确定性去重拦截",
+                    ))
 
             # --- Task 4: Source-ref lineage validation (fast-fail hallucinations) ---
             lineage_vetoed: list[EvaluationResult] = []
