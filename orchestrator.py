@@ -7,6 +7,7 @@ from models import (
 )
 from utils.data_loader import SKUDataLoader
 from utils.guard import HardConstraintGuard
+from utils.feedback_loader import _normalize_name
 from agents.generator import GeneratorAgent
 from agents.evaluator import EvaluatorAgent
 from utils.search import FoodTrendSearcher
@@ -130,11 +131,12 @@ class Orchestrator:
             # Load HITL feedback (must be before Generator call)
             blacklist: set[str] = set()
             feedback_summary = ""
+            all_rejections: list[dict] = []
             try:
                 from pathlib import Path as _Path
                 from utils.feedback_loader import (
                     load_all_rejections, build_blacklist,
-                    build_feedback_summary, _normalize_name,
+                    build_feedback_summary,
                 )
                 all_rejections = load_all_rejections(_Path("data/feedback"))
                 blacklist = build_blacklist(all_rejections, cuisine)
