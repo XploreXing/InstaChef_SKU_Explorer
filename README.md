@@ -42,6 +42,8 @@ Generator → Evaluator 双 Agent 循环，Orchestrator 协调，支持 Tavily �
 - [Tavily API Key](https://tavily.com/)（搜索）
 - [SiliconFlow API Key](https://siliconflow.cn/)（LLM，默认 DeepSeek-V3）
 
+> 🎁 **免费白嫖国产大模型**：通过 [这个邀请链接](https://cloud.siliconflow.cn/i/SV01waIi) 注册硅基流动，完成支付宝实名认证即可领取代金券，零成本体验 MiniMax-2.5、GLM-5.1、DeepSeek V3 等国产顶流模型。注册后 API Key 即开即用。
+
 ### 1. 克隆仓库
 
 ```bash
