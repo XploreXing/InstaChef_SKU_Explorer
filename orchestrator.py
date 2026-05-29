@@ -158,6 +158,8 @@ class Orchestrator:
             # --- HITL Blacklist: deterministic name match on rejected dishes ---
             hitl_vetoed: list[EvaluationResult] = []
             all_rejections: list[dict] = []
+            blacklist: set[str] = set()
+            feedback_summary = ""
             try:
                 from pathlib import Path as _Path
                 from utils.feedback_loader import (
@@ -168,8 +170,7 @@ class Orchestrator:
                 blacklist = build_blacklist(all_rejections, cuisine)
                 feedback_summary = build_feedback_summary(all_rejections, cuisine)
             except Exception:
-                blacklist = set()
-                feedback_summary = ""
+                pass
 
             for p in proposal_dicts:
                 name = p.get("name", "")
