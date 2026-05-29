@@ -189,6 +189,8 @@ class Orchestrator:
                         "with", "dry", "style", "rice", "bowl", "noodles",
                         "sauce", "fresh", "hot", "warm", "served", "dish",
                         "fried", "grilled", "braised", "soup",
+                        "beef", "duck", "fish", "tea", "steamed",
+                        "chicken", "lamb", "pork", "egg", "tofu",
                     }
                     name = p.get("name", "")
                     words = name.split() or [name]
