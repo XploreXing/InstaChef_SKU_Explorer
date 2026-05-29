@@ -154,8 +154,8 @@ class Orchestrator:
             hitl_vetoed: list[EvaluationResult] = []
             try:
                 from pathlib import Path as _Path
-                from app import _load_all_rejections
-                all_rejections = _load_all_rejections(_Path("data/feedback"))
+                from utils.feedback_loader import load_all_rejections
+                all_rejections = load_all_rejections(_Path("data/feedback"))
             except Exception:
                 all_rejections = []
 
