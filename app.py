@@ -108,17 +108,24 @@ def _save_lineage_log(output, log_dir: Path) -> Path | None:
     if not entries:
         return None
 
-    # Quick stats
+    # Quick stats (dual-evidence)
     total = sum(len(e["proposals"]) for e in entries)
     validated = sum(
         1 for e in entries for p in e["proposals"] if p.get("validated")
     )
     hallucinated = total - validated
-    evidence_ok = sum(
+    dish_ok = sum(
         1 for e in entries for p in e["proposals"]
-        if p.get("validated") and p.get("evidence_matched")
+        if p.get("validated") and p.get("dish_name_matched")
     )
-    evidence_missing = validated - evidence_ok
+    trend_ok = sum(
+        1 for e in entries for p in e["proposals"]
+        if p.get("validated") and p.get("trend_matched")
+    )
+    menu_count = sum(
+        1 for e in entries for p in e["proposals"]
+        if p.get("evidence_level") == "menu"
+    )
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = log_dir / f"lineage_{ts}.json"
@@ -130,8 +137,9 @@ def _save_lineage_log(output, log_dir: Path) -> Path | None:
                 "total": total,
                 "tag_validated": validated,
                 "hallucinated": hallucinated,
-                "evidence_matched": evidence_ok,
-                "evidence_missing": evidence_missing,
+                "dish_name_matched": dish_ok,
+                "trend_matched": trend_ok,
+                "menu_evidence": menu_count,
             },
             "entries": entries,
         }, f, ensure_ascii=False, indent=2)
