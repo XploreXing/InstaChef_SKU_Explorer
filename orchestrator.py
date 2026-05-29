@@ -182,7 +182,13 @@ class Orchestrator:
                         "wenzhou", "yangzhou", "lanzhou", "shanghai", "beijing",
                         "fujian", "yunnan", "xinjiang", "guizhou", "jiangxi",
                         "jiangsu", "shaanxi", "hakka", "dongbei", "hainanese",
-                        "shanghainese", "chinese",
+                        "shanghainese", "chinese", "chongqing", "jiangnan",
+                    }
+                    # Words so common in food content they prove nothing
+                    _COOKING_NOISE = {
+                        "with", "dry", "style", "rice", "bowl", "noodles",
+                        "sauce", "fresh", "hot", "warm", "served", "dish",
+                        "fried", "grilled", "braised", "soup",
                     }
                     name = p.get("name", "")
                     words = name.split() or [name]
@@ -217,7 +223,9 @@ class Orchestrator:
                     else:
                         for w in signature_words:
                             w_clean = w.lower().strip(",.()")
-                            if len(w_clean) >= 3 and w_clean in ref_texts:
+                            if (len(w_clean) >= 3
+                                    and w_clean not in _COOKING_NOISE
+                                    and w_clean in ref_texts):
                                 dish_name_matched = True
                                 checked_terms.append(f"partial:{w_clean}")
                                 idx = ref_texts.find(w_clean)
