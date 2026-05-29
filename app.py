@@ -16,6 +16,19 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent))
 
 from orchestrator import Orchestrator
+from models import RejectionFeedback
+
+REJECTION_REASONS = {
+    "cold_food":     ("冷食/不适合60-70°C热柜", "guard_kill"),
+    "non_halal":     ("不清真/含猪肉酒精",       "guard_haram"),
+    "fried":         ("油炸/不健康",             "evaluator_fried"),
+    "duplicate":     ("已有类似SKU/重复",        "evaluator_duplicate"),
+    "bad_taste":     ("口味不适合新加坡市场",     "evaluator_trend"),
+    "bad_name":      ("菜名不够吸引人",          "generator_naming"),
+    "too_complex":   ("做法太复杂/不适合自动化", "evaluator_complexity"),
+    "cost_high":     ("原料成本过高",             "generator_price"),
+    "other":         ("其他（自定义）",           "manual_review"),
+}
 
 st.set_page_config(
     page_title="InstaChef SKU Explorer",
@@ -327,11 +340,44 @@ def _load_output():
     )
 
 
+def _save_feedback(rejections: list[RejectionFeedback], log_dir: Path) -> Path:
+    """Save rejection feedback to a timestamped JSON file."""
+    from dataclasses import asdict
+    from datetime import datetime
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_dir / f"rejections_{ts}.json"
+    with open(path, "w") as f:
+        json.dump({
+            "timestamp": ts,
+            "count": len(rejections),
+            "rejections": [asdict(r) for r in rejections],
+        }, f, ensure_ascii=False, indent=2)
+    return path
+
+
+def _load_all_rejections(log_dir: Path) -> list[dict]:
+    """Load all rejection feedback from a directory."""
+    all_rejections: list[dict] = []
+    if not log_dir.exists():
+        return all_rejections
+    for f in sorted(log_dir.glob("rejections_*.json")):
+        try:
+            data = json.loads(f.read_text())
+            all_rejections.extend(data.get("rejections", []))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return all_rejections
+
+
 def init_session():
     defaults = {
         "output": None,
         "adopted": set(),
         "rejected": set(),
+        "pending_rejections": [],
+        "rejection_reasons_map": {},  # {dish_name: (reason_code, custom_note)}
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -653,14 +699,47 @@ def render_results():
     )
 
     for idx, row in edited.iterrows():
-        # Use English name as the stable key (not the display name which combines CN+EN)
         real_name = all_evals[idx].proposal.name
         if row["采纳"]:
             st.session_state.adopted.add(real_name)
             st.session_state.rejected.discard(real_name)
+            st.session_state.rejection_reasons_map.pop(real_name, None)
         else:
             st.session_state.rejected.add(real_name)
             st.session_state.adopted.discard(real_name)
+
+    # Rejection reason selectors for rejected items
+    rejected_items = [
+        (idx, e) for idx, e in enumerate(all_evals)
+        if e.proposal.name in st.session_state.rejected
+    ]
+    if rejected_items:
+        with st.expander("📝 拒绝原因（选择后将在导出页提交）", expanded=len(rejected_items) <= 3):
+            for idx, e in rejected_items:
+                name = e.proposal.name
+                name_cn = e.proposal.name_cn or name
+                current = st.session_state.rejection_reasons_map.get(name, ("", ""))
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    reason = st.selectbox(
+                        f"拒绝原因: {name_cn}",
+                        options=["（未选择）"] + [label for _, (label, _) in REJECTION_REASONS.items()],
+                        index=0 if not current[0] else (
+                            ["（未选择）"] + list(REJECTION_REASONS.keys())
+                        ).index(current[0]) if current[0] in REJECTION_REASONS else 0,
+                        key=f"reason_{idx}_{name}",
+                    )
+                with col2:
+                    note = st.text_input(
+                        "备注（选填）",
+                        value=current[1],
+                        key=f"note_{idx}_{name}",
+                    )
+                if reason != "（未选择）":
+                    for code, (label, _) in REJECTION_REASONS.items():
+                        if label == reason:
+                            st.session_state.rejection_reasons_map[name] = (code, note)
+                            break
 
     col1, col2, col3 = st.columns(3)
     col1.metric("✅ 已采纳", len(st.session_state.adopted))
@@ -681,6 +760,50 @@ def render_export():
     all_evals = []
     for cr in st.session_state.output.cuisines.values():
         all_evals.extend(cr.locked)
+
+    # Feedback submission
+    reason_map = st.session_state.rejection_reasons_map
+    pending = [
+        (name, code, note) for name, (code, note) in reason_map.items()
+        if code and code in REJECTION_REASONS
+    ]
+    if pending:
+        st.subheader("📝 待提交反馈")
+        feedback_df = pd.DataFrame([
+            {
+                "菜品": name,
+                "原因": REJECTION_REASONS[code][0],
+                "备注": note,
+            }
+            for name, code, note in pending
+        ])
+        st.dataframe(feedback_df, hide_index=True)
+
+        if st.button("📤 提交反馈", type="primary"):
+            rejections = []
+            for name, code, note in pending:
+                eval_item = None
+                for e in all_evals:
+                    if e.proposal.name == name:
+                        eval_item = e
+                        break
+                rejection = RejectionFeedback(
+                    proposal_name=name,
+                    proposal_name_cn=eval_item.proposal.name_cn if eval_item else "",
+                    cuisine=eval_item.proposal.cuisine if eval_item else "",
+                    reason_code=code,
+                    reason_label=REJECTION_REASONS[code][0],
+                    custom_note=note,
+                )
+                rejections.append(rejection)
+
+            feedback_path = Path("data/feedback")
+            saved = _save_feedback(rejections, feedback_path)
+            st.session_state.rejection_reasons_map = {}
+            st.toast(f"✅ 已提交 {len(rejections)} 条反馈到 {saved.name}")
+            st.rerun()
+
+        st.divider()
 
     col1, col2 = st.columns(2)
 

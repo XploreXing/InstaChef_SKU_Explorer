@@ -98,6 +98,18 @@ class FinalOutput:
 
 
 @dataclass
+class RejectionFeedback:
+    """Human feedback: a proposal rejected by the user with reason."""
+    proposal_name: str
+    proposal_name_cn: str
+    cuisine: str
+    reason_code: str
+    reason_label: str
+    custom_note: str = ""
+    timestamp: str = ""
+
+
+@dataclass
 class RawCommodity:
     """Direct CSV row — weak structured data from Metabase export."""
     id: int
