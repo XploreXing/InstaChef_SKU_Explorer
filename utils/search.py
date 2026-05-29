@@ -273,12 +273,12 @@ class FoodTrendSearcher:
         for i, r in enumerate(results):
             tag = f"REF_{i + 1:02d}"
             ref_map[tag] = r.get("url", "")
-            content = r.get("content", "")[:800]
-            ref_contents[tag] = content
+            ref_contents[tag] = r.get("content", "")[:800]  # full for evidence matching
             ref_source_types[tag] = r.get("source_type", "trend")
+            summary_content = r.get("content", "")[:300]  # truncated for Generator prompt
             lines.append(
                 f"- **[{tag}] {r.get('title', 'Untitled')}** "
-                f"({r.get('url', '')}) [{ref_source_types[tag]}]: {content}"
+                f"({r.get('url', '')}) [{ref_source_types[tag]}]: {summary_content}"
             )
 
         lines.append(f"\n*{len(results)} sources found. References: {', '.join(ref_map.keys())}.*")
