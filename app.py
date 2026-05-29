@@ -458,6 +458,7 @@ def render_control_panel():
             if progress:
                 progress["stop_requested"] = True
                 _write_progress(progress)
+            st.toast("⏹️ 停止请求已发送，等待当前 LLM 调用完成后生效")
             st.rerun()
 
         if start_clicked:
@@ -633,6 +634,9 @@ def render_progress():
         return
 
     # Still running — show progress bar + messages
+    if progress.get("stop_requested"):
+        st.warning("⏹️ 已请求停止 — 等待当前 LLM 调用完成后将自动终止")
+
     locked = progress.get("locked_count", 0)
     target_val = progress.get("target", 10)
     phase = progress.get("phase", "")
