@@ -151,6 +151,7 @@ class Orchestrator:
             # augmented_search = search_summary + "\n\n" + feedback_summary[:500]
             augmented_search = search_summary
 
+            print(f"  [generate] search_summary={len(augmented_search)} chars, cuisine={cuisine}", flush=True)
             proposal_dicts = self.generator.generate(
                 cuisine=cuisine,
                 count=remaining + 5,

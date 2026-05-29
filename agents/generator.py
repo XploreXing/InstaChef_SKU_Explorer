@@ -88,9 +88,12 @@ class GeneratorAgent:
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content
+            if not content or len(content.strip()) == 0:
+                print(f"Generator returned empty content. finish_reason={response.choices[0].finish_reason}", flush=True)
+                return []
             return self._parse_response(content)
         except Exception as e:
-            print(f"Generator API call failed: {e}")
+            print(f"Generator API call failed: {e}", flush=True)
             return []
 
     def _parse_response(self, content: str) -> list[dict]:
