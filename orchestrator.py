@@ -127,6 +127,21 @@ class Orchestrator:
                 "locked_count": len(locked), "remaining": remaining
             })
 
+            # Load HITL feedback (must be before Generator call)
+            blacklist: set[str] = set()
+            feedback_summary = ""
+            try:
+                from pathlib import Path as _Path
+                from utils.feedback_loader import (
+                    load_all_rejections, build_blacklist,
+                    build_feedback_summary, _normalize_name,
+                )
+                all_rejections = load_all_rejections(_Path("data/feedback"))
+                blacklist = build_blacklist(all_rejections, cuisine)
+                feedback_summary = build_feedback_summary(all_rejections, cuisine)
+            except Exception:
+                pass
+
             # Trace: generate
             t_gen = time.time()
             locked_names = [e.proposal.name for e in locked]
@@ -155,22 +170,8 @@ class Orchestrator:
             if not proposal_dicts:
                 break
 
-            # --- HITL Blacklist: deterministic name match on rejected dishes ---
+            # --- HITL Blacklist: deterministic name match (uses pre-loaded blacklist) ---
             hitl_vetoed: list[EvaluationResult] = []
-            all_rejections: list[dict] = []
-            blacklist: set[str] = set()
-            feedback_summary = ""
-            try:
-                from pathlib import Path as _Path
-                from utils.feedback_loader import (
-                    load_all_rejections, build_blacklist,
-                    build_feedback_summary, _normalize_name,
-                )
-                all_rejections = load_all_rejections(_Path("data/feedback"))
-                blacklist = build_blacklist(all_rejections, cuisine)
-                feedback_summary = build_feedback_summary(all_rejections, cuisine)
-            except Exception:
-                pass
 
             for p in proposal_dicts:
                 name = p.get("name", "")
