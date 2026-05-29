@@ -353,8 +353,27 @@ class Orchestrator:
             # Combine: lineage-vetoed + guard-vetoed + LLM-evaluated
             evaluation_results = lineage_vetoed + guard_vetoed + llm_results
 
-            # JUDGING — lock incrementally so UI sees step-by-step progress
+            # JUDGING — apply evidence penalty before pass/fail
             self.state = OrchestratorState.JUDGING
+            for i, e in enumerate(evaluation_results):
+                if not e.vetoed and i < len(lineage_log):
+                    li = lineage_log[i]
+                    if not li.get("dish_name_matched"):
+                        # Weak evidence: dish name not found in search content
+                        # Check if trend_match is only generic (cuisine name)
+                        terms = li.get("checked_terms", [])
+                        generic_only = all(
+                            t.startswith("trend:") for t in terms
+                        ) if terms else True
+                        penalty = 10 if generic_only else 5
+                        e.total_score = max(0, e.total_score - penalty)
+                        e.passed = e.total_score >= current_threshold
+                        e.reasoning += (
+                            f" [证据降权-{penalty}: dish_name未匹配"
+                            + ("且仅有泛化趋势信号" if generic_only else "")
+                            + "]"
+                        )
+
             new_passed = [e for e in evaluation_results if e.passed]
             new_rejected = [e for e in evaluation_results if not e.passed]
 
