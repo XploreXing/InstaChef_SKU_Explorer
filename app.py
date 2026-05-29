@@ -464,6 +464,7 @@ def render_control_panel():
             st.session_state.output = None
             st.session_state.adopted = set()
             st.session_state.rejected = set()
+            st.session_state._run_id = time.time()
             _clear_progress()
 
             # Capture sidebar params before starting thread
@@ -486,6 +487,7 @@ def render_control_panel():
                 "phase": "",
                 "cuisine": "",
                 "stop_requested": False,
+                "run_id": st.session_state.get("_run_id", 0),
             }
             _write_progress(state)
 
@@ -602,6 +604,13 @@ def render_control_panel():
 
 def render_progress():
     progress = _read_progress()
+
+    # Ignore stale progress from a previous run
+    if progress is not None:
+        current_run_id = st.session_state.get("_run_id", 0)
+        progress_run_id = progress.get("run_id", 0)
+        if current_run_id and progress_run_id and abs(current_run_id - progress_run_id) > 5:
+            progress = None
 
     if progress is None:
         st.info("点击侧边栏 🚀 启动搜索 开始探索")
