@@ -175,10 +175,25 @@ class Orchestrator:
                     evidence_level = "menu" if has_menu else "trend"
 
                     # Dish name match: signature phrase (first 60% words)
+                    # Filter out regional/cuisine sub-type names that appear in
+                    # every food article but prove nothing about a specific dish
+                    _REGION_NOISE = {
+                        "sichuan", "hunan", "cantonese", "teochew", "hokkien",
+                        "wenzhou", "yangzhou", "lanzhou", "shanghai", "beijing",
+                        "fujian", "yunnan", "xinjiang", "guizhou", "jiangxi",
+                        "jiangsu", "shaanxi", "hakka", "dongbei", "hainanese",
+                        "shanghainese", "chinese",
+                    }
                     name = p.get("name", "")
                     words = name.split() or [name]
                     n = max(1, -(-len(words) * 3 // 5))
-                    signature_words = words[:n]
+                    signature_words = [
+                        w for w in words[:n]
+                        if w.lower().strip(",.()") not in _REGION_NOISE
+                    ]
+                    # If all words were region noise, fall back to full name
+                    if not signature_words:
+                        signature_words = words[:n]
                     signature_phrase = " ".join(
                         w.lower().strip(",.()") for w in signature_words
                     )
