@@ -118,6 +118,31 @@ class RawCommodity:
 
 
 @dataclass
+class ObservabilityEvent:
+    """Unified event for JSON Lines observability. One event = one line.
+
+    Common header fields are serialized at the top level; stage-specific
+    data goes into the `payload` dict.  Designed for append-only JSONL
+    output so every event in a pipeline run shares a single trace_id.
+    """
+    trace_id: str
+    run_id: str
+    session_id: str
+    timestamp: str          # ISO 8601 with ms, e.g. "2026-06-02T10:00:11.456"
+    cuisine: str
+    round_num: int          # 0 = pre-round (search / summarize)
+    stage: str              # search | summarize | generate | evaluate | judging | feedback
+    event_type: str         # stage_start | stage_end | error | veto | lineage | search_snippet
+    status: str             # "success" | "error"
+    elapsed_ms: float = 0.0
+    model_name: str = ""
+    input_size_chars: int = 0
+    output_size_chars: int = 0
+    error: str = ""
+    payload: dict = field(default_factory=dict)
+
+
+@dataclass
 class ProcessedCommodity:
     """Enriched commodity with LLM-generated semantic tags."""
     id: int

@@ -8,6 +8,7 @@ from models import (
 from utils.data_loader import SKUDataLoader
 from utils.guard import HardConstraintGuard
 from utils.feedback_loader import _normalize_name
+from utils.observability import ObservabilityLogger
 from agents.generator import GeneratorAgent
 from agents.evaluator import EvaluatorAgent
 from utils.search import FoodTrendSearcher
@@ -29,6 +30,7 @@ class Orchestrator:
         self.generator: GeneratorAgent | None = None
         self.evaluator: EvaluatorAgent | None = None
         self.searcher: FoodTrendSearcher | None = None
+        self.obs: "ObservabilityLogger | None" = None  # set by app.py or tests
 
     def load_skus(self):
         self.sku_loader = SKUDataLoader(self.config)
@@ -94,6 +96,18 @@ class Orchestrator:
             input_size_chars=len(cuisine),
             output_size_chars=sum(len(str(r)) for r in search_results),
         )
+        self._obs_emit(
+            cuisine=cuisine, round_num=0, stage="search",
+            event_type="stage_end", status="success",
+            elapsed_ms=trace_search.elapsed_ms,
+            model_name="tavily",
+            input_size_chars=len(cuisine),
+            output_size_chars=sum(len(str(r)) for r in search_results),
+            payload={
+                "raw_result_count": len(search_results),
+                "queries_used": self.searcher.last_hop1_queries if hasattr(self.searcher, "last_hop1_queries") else [],
+            },
+        )
 
         # Summarizing
         self._emit(cuisine, 0, "summarizing", {
@@ -111,6 +125,20 @@ class Orchestrator:
             model_name=self.config["llm"].get("generator_model", "n/a"),
             input_size_chars=sum(len(str(r)) for r in search_results),
             output_size_chars=len(search_summary),
+        )
+        self._obs_emit(
+            cuisine=cuisine, round_num=0, stage="summarize",
+            event_type="stage_end", status="success",
+            elapsed_ms=trace_summarize.elapsed_ms,
+            model_name=trace_summarize.model_name,
+            input_size_chars=trace_summarize.input_size_chars,
+            output_size_chars=len(search_summary),
+            payload={
+                "summary_length_chars": len(search_summary),
+                "ref_map_size": len(ref_map),
+                "menu_refs": sum(1 for t in ref_source_types.values() if t == "menu"),
+                "trend_refs": sum(1 for t in ref_source_types.values() if t == "trend"),
+            },
         )
 
         for round_num in range(1, cfg["max_rounds_per_cuisine"] + 1):
@@ -168,6 +196,18 @@ class Orchestrator:
                 input_size_chars=len(search_summary) + len(feedback),
                 output_size_chars=sum(len(str(p)) for p in proposal_dicts) if proposal_dicts else 0,
             )
+            self._obs_emit(
+                cuisine=cuisine, round_num=round_num, stage="generate",
+                event_type="stage_end", status="success",
+                elapsed_ms=trace_generate.elapsed_ms,
+                model_name=trace_generate.model_name,
+                input_size_chars=trace_generate.input_size_chars,
+                output_size_chars=trace_generate.output_size_chars,
+                payload={
+                    "proposals_count": len(proposal_dicts) if proposal_dicts else 0,
+                    "feedback_injected": bool(feedback_summary),
+                },
+            )
 
             if not proposal_dicts:
                 break
@@ -201,6 +241,17 @@ class Orchestrator:
                         passed=False,
                         reasoning="HITL 反馈黑名单 — 确定性去重拦截",
                     ))
+                    self._obs_emit(
+                        cuisine=cuisine, round_num=round_num, stage="generate",
+                        event_type="veto", status="success",
+                        payload={
+                            "proposal_name": name,
+                            "proposal_name_cn": p.get("name_cn", ""),
+                            "veto_layer": "hitl_blacklist",
+                            "veto_reason": "HITL黑名单：确定性去重（此前被人工拒绝）",
+                            "immediate": True,
+                        },
+                    )
 
             # --- Task 4: Source-ref lineage validation (fast-fail hallucinations) ---
             lineage_vetoed: list[EvaluationResult] = []
@@ -323,6 +374,23 @@ class Orchestrator:
                     "evidence_hits": evidence_hits,
                     "ref_urls": {r: ref_map[r] for r in refs if r in ref_map} if valid else {},
                 })
+                if valid:
+                    self._obs_emit(
+                        cuisine=cuisine, round_num=round_num, stage="generate",
+                        event_type="lineage", status="success",
+                        payload={
+                            "proposal_name": p.get("name", ""),
+                            "proposal_name_cn": p.get("name_cn", ""),
+                            "source_refs": refs,
+                            "validated": valid,
+                            "evidence_level": evidence_level,
+                            "dish_name_matched": dish_name_matched,
+                            "trend_matched": trend_matched,
+                            "hop2_refs": hop2_count,
+                            "checked_terms": checked_terms,
+                            "evidence_hits": evidence_hits,
+                        },
+                    )
                 if not valid:
                     lineage_vetoed.append(EvaluationResult(
                         proposal=DishProposal(
@@ -346,6 +414,17 @@ class Orchestrator:
                         passed=False,
                         reasoning="数据谱系验证失败 — Fast-Failure 拦截",
                     ))
+                    self._obs_emit(
+                        cuisine=cuisine, round_num=round_num, stage="generate",
+                        event_type="veto", status="success",
+                        payload={
+                            "proposal_name": p.get("name", ""),
+                            "proposal_name_cn": p.get("name_cn", ""),
+                            "veto_layer": "lineage",
+                            "veto_reason": "幻觉数据：未引用有效搜索来源",
+                            "immediate": True,
+                        },
+                    )
                 else:
                     # Inject ref_map URLs for traceability
                     p["_ref_urls"] = {r: ref_map[r] for r in refs}
@@ -380,6 +459,17 @@ class Orchestrator:
                         passed=False,
                         reasoning="高压线熔断 — 无需 LLM 评估",
                     ))
+                    self._obs_emit(
+                        cuisine=cuisine, round_num=round_num, stage="evaluate",
+                        event_type="veto", status="success",
+                        payload={
+                            "proposal_name": p.get("name", ""),
+                            "proposal_name_cn": p.get("name_cn", ""),
+                            "veto_layer": "guard",
+                            "veto_reason": veto_reason,
+                            "immediate": True,
+                        },
+                    )
                 else:
                     guard_passed_proposals.append(p)
 
@@ -444,6 +534,24 @@ class Orchestrator:
                 input_size_chars=sum(len(str(p)) for p in guard_passed_proposals),
                 output_size_chars=sum(len(str(e)) for e in llm_results),
             )
+            # Count evaluator-level vetoes (from LLM results)
+            eval_vetoed = [e for e in llm_results if e.vetoed]
+            eval_passed = [e for e in llm_results if e.passed]
+            self._obs_emit(
+                cuisine=cuisine, round_num=round_num, stage="evaluate",
+                event_type="stage_end", status="success",
+                elapsed_ms=trace_evaluate.elapsed_ms,
+                model_name=trace_evaluate.model_name,
+                input_size_chars=trace_evaluate.input_size_chars,
+                output_size_chars=trace_evaluate.output_size_chars,
+                payload={
+                    "evaluated_count": len(guard_passed_proposals),
+                    "passed_count": len(eval_passed),
+                    "vetoed_count": len(eval_vetoed),
+                    "low_score_count": len(llm_results) - len(eval_passed) - len(eval_vetoed),
+                    "avg_score": round(sum(e.total_score for e in llm_results) / max(len(llm_results), 1), 1),
+                },
+            )
 
             # Combine: HITL-vetoed + lineage-vetoed + guard-vetoed + LLM-evaluated
             evaluation_results = hitl_vetoed + lineage_vetoed + guard_vetoed + llm_results
@@ -471,6 +579,22 @@ class Orchestrator:
 
             new_passed = [e for e in evaluation_results if e.passed]
             new_rejected = [e for e in evaluation_results if not e.passed]
+
+            # Observability: judging stage summary
+            evidence_penalties = sum(
+                1 for e in evaluation_results
+                if not e.vetoed and "[证据降权" in (e.reasoning or "")
+            )
+            self._obs_emit(
+                cuisine=cuisine, round_num=round_num, stage="judging",
+                event_type="stage_end", status="success",
+                payload={
+                    "evidence_penalties_applied": evidence_penalties,
+                    "threshold": current_threshold,
+                    "new_locked": len(new_passed),
+                    "total_locked": len(locked) + len(new_passed),
+                },
+            )
 
             for i, e in enumerate(new_passed):
                 locked.append(e)
@@ -524,6 +648,21 @@ class Orchestrator:
                 model_name=self.config["llm"].get("generator_model", "n/a"),
                 input_size_chars=sum(len(str(e)) for e in evaluation_results),
                 output_size_chars=len(feedback),
+            )
+            self._obs_emit(
+                cuisine=cuisine, round_num=round_num, stage="feedback",
+                event_type="stage_end", status="success",
+                elapsed_ms=trace_feedback.elapsed_ms,
+                model_name=trace_feedback.model_name,
+                input_size_chars=trace_feedback.input_size_chars,
+                output_size_chars=len(feedback),
+                payload={
+                    "feedback_length_chars": len(feedback),
+                    "threshold_before": current_threshold,
+                    "threshold_after": new_threshold,
+                    "auto_adjusted": new_threshold < current_threshold,
+                    "adjustment": new_threshold - current_threshold,
+                },
             )
 
             # Collect all stage traces for this round
@@ -808,6 +947,22 @@ Output JSON:
                 "total_results": len(snippets),
                 "snippets": snippets,
             }, f, ensure_ascii=False, indent=2)
+
+        self._obs_emit(
+            cuisine=cuisine, round_num=0, stage="search",
+            event_type="search_snippet", status="success",
+            payload={
+                "total_snippets": len(snippets),
+                "menu_snippets": sum(1 for s in snippets if s.get("source_type") == "menu"),
+                "trend_snippets": sum(1 for s in snippets if s.get("source_type") == "trend"),
+                "saved_path": str(path),
+            },
+        )
+
+    def _obs_emit(self, **kwargs):
+        """Convenience: emit to self.obs if set, no-op otherwise."""
+        if self.obs is not None:
+            self.obs.emit(**kwargs)
 
     def _emit(self, cuisine: str, round_num: int, phase: str, meta: dict):
         for cb in self.state_callbacks.get("on_state_change", []):

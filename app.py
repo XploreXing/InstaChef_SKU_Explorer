@@ -506,7 +506,15 @@ def render_control_panel():
                     _write_progress(state)
 
                 try:
+                    from utils.observability import ObservabilityLogger
+
+                    obs = ObservabilityLogger(
+                        session_id=str(st.session_state.get("_run_id", "")),
+                    )
+                    log(f"📊 trace_id: {obs.trace_id}")
+
                     orch = Orchestrator("config.yaml")
+                    orch.obs = obs
                     # Override config with sidebar parameters
                     orch.config["orchestrator"]["target_per_cuisine"] = target
                     orch.config["orchestrator"]["pass_threshold"] = threshold
@@ -564,6 +572,7 @@ def render_control_panel():
                     was_stopped = _read_progress().get("stop_requested", False) if _read_progress() else False
 
                     if was_stopped:
+                        obs.flush()
                         log("⏹️ 用户中断。已保存当前进度。")
                     else:
                         _save_output(output)
@@ -578,6 +587,8 @@ def render_control_panel():
                         lineage_path = _save_lineage_log(output, Path("data/logs"))
                         if lineage_path:
                             log(f"🔗 数据谱系已保存: {lineage_path.name}")
+                        obs.flush()
+                        log(f"📊 事件日志已保存: {obs.log_path.name} ({obs.event_count} events, trace_id={obs.trace_id})")
                         log("🎉 搜索完成！")
                 except Exception as e:
                     state["error"] = str(e)
