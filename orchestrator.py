@@ -948,16 +948,22 @@ Output JSON:
                 "snippets": snippets,
             }, f, ensure_ascii=False, indent=2)
 
-        self._obs_emit(
-            cuisine=cuisine, round_num=0, stage="search",
-            event_type="search_snippet", status="success",
-            payload={
-                "total_snippets": len(snippets),
-                "menu_snippets": sum(1 for s in snippets if s.get("source_type") == "menu"),
-                "trend_snippets": sum(1 for s in snippets if s.get("source_type") == "trend"),
-                "saved_path": str(path),
-            },
-        )
+        # Emit individual snippet events — one per Tavily result — so
+        # the full evidence chain (search content → Generator → lineage →
+        # evaluation → veto) is traceable with a single jq query.
+        for i, s in enumerate(snippets):
+            self._obs_emit(
+                cuisine=cuisine, round_num=0, stage="search",
+                event_type="search_snippet", status="success",
+                payload={
+                    "index": i,
+                    "title": s.get("title", ""),
+                    "url": s.get("url", ""),
+                    "content": s.get("content", "")[:300],
+                    "source_type": s.get("source_type", "trend"),
+                    "evidence_level": s.get("evidence_level", "trend"),
+                },
+            )
 
     def _obs_emit(self, **kwargs):
         """Convenience: emit to self.obs if set, no-op otherwise."""
