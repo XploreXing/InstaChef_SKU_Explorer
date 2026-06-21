@@ -29,7 +29,7 @@ def _serialize_commodities(commodities) -> list[dict]:
 
 def build_evaluator_user_message(
     proposals: list[dict],
-    existing_skus: list,
+    cuisine_sku_count: int,
     round_num: int,
     locked_count: int,
     remaining: int,
@@ -37,16 +37,17 @@ def build_evaluator_user_message(
     hitl_context: str = "",
 ) -> str:
     parts = [
-        f"## Current InstaChef SKU Catalog ({len(existing_skus)} total SKUs)",
-        json.dumps(_serialize_commodities(existing_skus), indent=2, ensure_ascii=False),
+        f"## Cuisine Context",
+        f"Current SKU count for this cuisine: {cuisine_sku_count}",
+        f"(Fewer SKUs → higher Blue Ocean score)",
         "",
-        "## Proposals to Evaluate",
+        "## Proposals to Evaluate (all hard-constraint checks already passed)",
         json.dumps(proposals, indent=2, ensure_ascii=False),
         "",
         "## Progress",
-        f"Round {round_num} of 3 for this cuisine.",
+        f"Round {round_num} of 3.",
         f"Currently {locked_count} accepted, need {remaining} more.",
-        f"Pass threshold: total_score >= {pass_threshold} to mark passed=true.",
+        f"Pass threshold: total_score >= {pass_threshold}.",
     ]
 
     if hitl_context:
@@ -74,7 +75,7 @@ class EvaluatorAgent:
     def evaluate(
         self,
         proposals: list[dict],
-        existing_skus: list,
+        cuisine_sku_count: int,
         round_num: int = 1,
         locked_count: int = 0,
         remaining: int = 10,
@@ -83,7 +84,7 @@ class EvaluatorAgent:
     ) -> tuple[list[dict], dict, str]:
         user_message = build_evaluator_user_message(
             proposals=proposals,
-            existing_skus=existing_skus,
+            cuisine_sku_count=cuisine_sku_count,
             round_num=round_num,
             locked_count=locked_count,
             remaining=remaining,

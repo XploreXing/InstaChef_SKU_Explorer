@@ -14,7 +14,12 @@ HARAM_WORDS = [
     "火腿", "ham",
     "腊肉", "培根",
 ]
-
+FRIED_WORDS= [
+    "katsu", "tempura", "karaage",
+    "tonkatsu", "炸鸡", "炸猪排", "炸虾",
+    "ayam penyet", "deep fried", "deep-fried",
+    "fried chicken wings", "fried chicken wing",
+]
 KILL_WORDS = [
     "冷面", "凉皮", "冰镇", "冷盘",
     "凉拌菜", "凉拌",
@@ -27,6 +32,19 @@ KILL_WORDS = [
     "水果碗", "fruit bowl",
     "果昔碗", "smoothie bowl",
     "酸奶碗", "yogurt bowl",
+]
+
+HAWKER_STAPLE_WORDS = [
+    "chicken rice", "鸡饭", "海南鸡饭",
+    "char siew", "char siu", "叉烧",
+    "char kway teow", "炒粿条",
+    "fishball noodles", "鱼丸面", "鱼圆面",
+    "beef hor fun", "牛肉河粉",
+    "mee siam", "米暹",
+    "wanton mee", "云吞面", "馄饨面",
+    "bak chor mee", "肉脞面",
+    "laksa", "叻沙",          # 小贩核心品类
+    "nasi lemak", "椰浆饭",   # 无处不在
 ]
 
 # Words that indicate the dish REQUIRES cold serving
@@ -76,7 +94,24 @@ class HardConstraintGuard:
         if found:
             return False, f"高压线熔断：检测到清真违规词 '{word}'"
         return True, ""
-
+    @classmethod
+    def check_fried(cls,name:str, name_cn:str,description:str,description_cn:str)->tuple[bool,str]:
+        """Check for fried ingredients.
+           Returns (passed:bool, veto_reson:str)
+        """
+        combined=f'{name} {name_cn} {description} {description_cn}'
+        found,word=cls._contains_any(combined,FRIED_WORDS)
+        if found:
+            return False, f"高压线熔断：检测到油炸物相关描述"
+    @classmethod
+    def check_hawker_staple(cls,name:str, name_cn:str,description:str,description_cn:str)->tuple[bool,str]:
+        """Check for ingredients sold in hawker centers.
+           Returns (passed:bool, veto_reson:str)
+        """
+        combined=f'{name} {name_cn} {description} {description_cn}'
+        found,word=cls._contains_any(combined,HAWKER_STAPLE_WORDS)
+        if found:
+            return False, f"高压线熔断：检测到小贩中心常卖食物相关描述"
     @classmethod
     def check_kill(cls, name: str, name_cn: str,
                    description: str, description_cn: str) -> tuple[bool, str]:
@@ -124,6 +159,12 @@ class HardConstraintGuard:
 
         # 2. Kill check (physical format mismatch)
         passed, reason = cls.check_kill(name, name_cn, description, description_cn)
+
+        # 3. Fried check
+        passed,reason=cls.check_fried(name,name_cn, description, description_cn)
+
+        # 4. Hawker Staple check
+        passed,reason=cls.check_hawker_staple(name,name_cn, description, description_cn)
         if not passed:
             return False, reason
 

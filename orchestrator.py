@@ -12,7 +12,7 @@ from utils.observability import ObservabilityLogger
 from agents.generator import GeneratorAgent
 from agents.evaluator import EvaluatorAgent
 from utils.search import FoodTrendSearcher
-
+from utils.duplication_checker import check_duplicates
 
 class Orchestrator:
     def __init__(self, config_path: str = "config.yaml"):
@@ -35,7 +35,7 @@ class Orchestrator:
     def load_skus(self):
         self.sku_loader = SKUDataLoader(self.config)
         self.existing_skus = self.sku_loader.load()
-        self.state = OrchestratorState.INIT
+        self.state = OrchestratorState.INIT #如果改为外部并发，即多个进程同时启动_process_cuisine是，因为这个state当前状态对并发完全没意义，只有内部的locked,round_num这些内部变量可以充当状态
 
     def _init_agents(self):
         if self.generator is None:
@@ -78,6 +78,7 @@ class Orchestrator:
         current_threshold = cfg["pass_threshold"]  # may auto-lower between rounds
 
         cuisine_skus = self.sku_loader.get_by_cuisine(cuisine)
+
 
         # Searching
         self._emit(cuisine, 0, "searching", {
@@ -187,7 +188,7 @@ class Orchestrator:
                 feedback=feedback,
                 locked_names=locked_names,
                 round_num=round_num,
-            )
+            ) ##这个部分实际上就是在向generator这个agent传递上下文，而orchestrator本身不是一个LLM是for循环和if判断
 
             trace_generate = StageTrace(
                 stage="generate",
@@ -473,6 +474,52 @@ class Orchestrator:
                 else:
                     guard_passed_proposals.append(p)
 
+            dup_vetoed: list[EvaluationResult] = []
+            dup_passed_proposals: list[dict] = []
+            for p in guard_passed_proposals:
+                is_dup, reason, score = check_duplicates(
+                    name=p.get("name", ""),
+                    name_cn=p.get("name_cn", ""),
+                    existing_skus=cuisine_skus
+    )
+                if is_dup:
+                    dup_vetoed.append(EvaluationResult(
+                        proposal=DishProposal(
+                        id=p.get("id", 0),
+                        name=p.get("name", ""),
+                        name_cn=p.get("name_cn", ""),
+                        cuisine=p.get("cuisine", ""),
+                        price_sgd=p.get("price_sgd", 0),
+                        description=p.get("description", ""),
+                        description_cn=p.get("description_cn", ""),
+                        differentiation=p.get("differentiation", ""),
+                        trend_source=p.get("trend_source", ""),
+                        source_refs=p.get("source_refs", []),
+            ),
+                vetoed=True,
+                veto_reason=reason,
+                cuisine_blue_ocean=0,
+                trend_heat=0,
+                hawker_substitutability=0,
+                total_score=0,
+                passed=False,
+                reasoning=f"去重检查 — 确定性拦截 (相似度 {score:.0%})",
+            ))
+                    self._obs_emit(
+                    cuisine=cuisine, round_num=round_num, stage="evaluate",
+                    event_type="veto", status="success",
+                    payload={
+                "proposal_name": p.get("name", ""),
+                "proposal_name_cn": p.get("name_cn", ""),
+                "veto_layer": "duplicate",
+                "veto_reason": reason,
+                "similarity": round(score, 3),
+                "immediate": True,
+            },
+        )
+            else:
+                dup_passed_proposals.append(p)
+
             # EVALUATING — only guard-passed proposals go to LLM
             self.state = OrchestratorState.EVALUATING
             self._emit(cuisine, round_num, "evaluating", {
@@ -506,10 +553,10 @@ class Orchestrator:
                     )
                 hitl_context = "\n".join(lines)
 
-            if guard_passed_proposals:
+            if dup_passed_proposals:
                 evaluations_raw, summary, suggestions = self.evaluator.evaluate(
                     proposals=guard_passed_proposals,
-                    existing_skus=cuisine_skus,
+                    cuisine_sku_count=len(cuisine_skus),
                     round_num=round_num,
                     locked_count=len(locked),
                     remaining=remaining,
@@ -519,7 +566,7 @@ class Orchestrator:
 
                 if evaluations_raw:
                     llm_results = EvaluatorAgent.to_evaluation_results(
-                        evaluations_raw, guard_passed_proposals
+                        evaluations_raw, dup_passed_proposals
                     )
                 else:
                     llm_results = []
@@ -531,7 +578,7 @@ class Orchestrator:
                 stage="evaluate",
                 elapsed_ms=(time.time() - t_eval) * 1000,
                 model_name=self.config["llm"].get("evaluator_model", "n/a"),
-                input_size_chars=sum(len(str(p)) for p in guard_passed_proposals),
+                input_size_chars=sum(len(str(p)) for p in dup_passed_proposals),
                 output_size_chars=sum(len(str(e)) for e in llm_results),
             )
             # Count evaluator-level vetoes (from LLM results)
@@ -554,7 +601,7 @@ class Orchestrator:
             )
 
             # Combine: HITL-vetoed + lineage-vetoed + guard-vetoed + LLM-evaluated
-            evaluation_results = hitl_vetoed + lineage_vetoed + guard_vetoed + llm_results
+            evaluation_results = hitl_vetoed + lineage_vetoed + guard_vetoed + dup_vetoed + llm_results
 
             # JUDGING — apply evidence penalty before pass/fail
             self.state = OrchestratorState.JUDGING
@@ -971,9 +1018,9 @@ Output JSON:
             self.obs.emit(**kwargs)
 
     def _emit(self, cuisine: str, round_num: int, phase: str, meta: dict):
-        for cb in self.state_callbacks.get("on_state_change", []):
+        for cb in self.state_callbacks.get("on_state_change", []): # on_state_chage是hook事件
             cb(cuisine, round_num, phase, meta)
 
     def _emit_round_complete(self, result: RoundResult):
-        for cb in self.state_callbacks.get("on_round_complete", []):
+        for cb in self.state_callbacks.get("on_round_complete", []): #on_round_complete也是hook事件
             cb(result)
