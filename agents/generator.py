@@ -1,7 +1,9 @@
 import json
 import os
 from openai import OpenAI
-
+from utils.generator_tools import (
+    GENERATOR_TOOL_SCHEMAS, GENERATOR_HANDLERS, set_tool_context,
+)
 
 GENERATOR_SYSTEM_PROMPT = None
 
@@ -61,12 +63,13 @@ class GeneratorAgent:
         count: int,
         search_summary: str,
         feedback: str = "",
+        existing_skus=None,
         locked_names: list[str] | None = None,
         round_num: int = 1,
     ) -> list[dict]:
         if locked_names is None:
             locked_names = []
-
+        
         user_message = build_generator_user_message(
             cuisine=cuisine,
             count=count,
@@ -75,23 +78,43 @@ class GeneratorAgent:
             locked_names=locked_names,
             round_num=round_num,
         )
-
+        messages=[{"role":"system","content":self.system_prompt},
+                  {"role":"user","content":user_message}]
         try:
-            response = self.client.chat.completions.create(
-                model=self.cfg["generator_model"],
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=self.cfg["generator_temperature"],
-                max_tokens=4096,
-                response_format={"type": "json_object"},
-            )
-            content = response.choices[0].message.content
-            if not content or len(content.strip()) == 0:
-                print(f"Generator returned empty content. finish_reason={response.choices[0].finish_reason}", flush=True)
-                return []
-            return self._parse_response(content)
+            for _ in range(10):
+                response = self.client.chat.completions.create(
+                    model=self.cfg["generator_model"],
+                    messages=messages,
+                    temperature=self.cfg["generator_temperature"],
+                    max_tokens=4096,
+                    tools=GENERATOR_TOOL_SCHEMAS,
+                )
+                msg = response.choices[0].message
+                messages.append(msg)
+                # Case 1: Model wants to call a tool
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        handler = GENERATOR_HANDLERS.get(tc.function.name)
+                        if handler:
+                            args = json.loads(tc.function.arguments)
+                            result = handler(args)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": result,
+                            })
+                    continue  # loop back, model can call more tools or output final
+                # Case 2: Model outputs final response (JSON proposals)
+                if msg.content:
+                    return self._parse_response(msg.content)
+
+            return []  # safety exit
+
+            #content = response.choices[0].message.content
+            #if not content or len(content.strip()) == 0:
+                #print(f"Generator returned empty content. finish_reason={response.choices[0].finish_reason}", flush=True)
+                #return []
+            #return self._parse_response(content)
         except Exception as e:
             print(f"Generator API call failed: {e}", flush=True)
             return []

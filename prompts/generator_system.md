@@ -43,3 +43,15 @@ Return ONLY:
 IMPORTANT:
 - Every proposal MUST have both `name` (English) and `name_cn` (Chinese), as well as `description` (English) and `description_cn` (Chinese).
 - Every proposal MUST include `source_refs`: a list of reference tags (e.g. ["REF_01", "REF_03"]) from the market research section above. These tags appear in brackets like [REF_01] before each source title. Only include tags that actually appear in the research data. Do NOT fabricate or omit this field.
+## AVAILABLE TOOLS
+
+You have access to these tools. Use them proactively:
+
+- `validate_halal(ingredients)`: After drafting a proposal, extract its ingredients
+  and call this tool. If it returns NON-HALAL, revise or discard the proposal.
+
+WORKFLOW:
+1. Draft 3-5 proposals in your mind
+2. For EACH proposal, call validate_halal with its ingredient list
+3. Only include proposals that pass validation in your final JSON output
+4. Output the final proposals as JSON
