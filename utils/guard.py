@@ -13,6 +13,7 @@ HARAM_WORDS = [
     "猪油", "lard",
     "火腿", "ham",
     "腊肉", "培根",
+    "sake", "mirin", "wine", "gelatin", "味醂",
 ]
 FRIED_WORDS= [
     "katsu", "tempura", "karaage",
@@ -34,20 +35,67 @@ KILL_WORDS = [
     "酸奶碗", "yogurt bowl",
 ]
 
-HAWKER_STAPLE_WORDS = [
-    "chicken rice", "鸡饭", "海南鸡饭",
-    "char siew", "char siu", "叉烧",
-    "char kway teow", "炒粿条",
-    "fishball noodles", "鱼丸面", "鱼圆面",
-    "beef hor fun", "牛肉河粉",
-    "mee siam", "米暹",
-    "wanton mee", "云吞面", "馄饨面",
-    "bak chor mee", "肉脞面",
-    "laksa", "叻沙",          # 小贩核心品类
-    "nasi lemak", "椰浆饭",   # 无处不在
+# Hawker staple phrases — these are COMPLETE DISH NAMES, not ingredients.
+#
+# Two categories:
+# 1. AMBIGUOUS: "chicken rice" / "鸡饭" — in SEA cuisine these are hawker staples,
+#    but in Mexican/Korean/etc they just mean "chicken + rice". Only apply when
+#    cuisine is SEA/Chinese.
+# 2. UNAMBIGUOUS: "laksa", "nasi lemak" — these are ALWAYS hawker staples
+#    regardless of cuisine label. Apply to all cuisines.
+
+# Unambiguous hawker staples — apply to ALL cuisines
+HAWKER_STAPLE_UNAMBIGUOUS_EN = [
+    "laksa",
+    "nasi lemak",
+    "char kway teow",
+    "char siu",
+    "char siew",
+    "bak chor mee",
+    "mee siam",
+    "wanton mee",
+]
+HAWKER_STAPLE_UNAMBIGUOUS_CN = [
+    "叻沙",
+    "椰浆饭",
+    "炒粿条",
+    "叉烧",
+    "肉脞面",
+    "米暹",
+    "云吞面", "馄饨面",
 ]
 
-# Words that indicate the dish REQUIRES cold serving
+# Ambiguous hawker staples — only apply to SEA/Chinese cuisines
+HAWKER_STAPLE_AMBIGUOUS_EN = [
+    "chicken rice",
+    "fishball noodles",
+    "beef hor fun",
+]
+HAWKER_STAPLE_AMBIGUOUS_CN = [
+    "鸡饭", "海南鸡饭",
+    "鱼丸面", "鱼圆面",
+    "牛肉河粉",
+]
+
+# Cuisines where ambiguous hawker staple words are likely to refer
+# to actual hawker centre dishes
+_SEA_CUISINES = {
+    "singaporean", "malay", "singaporean/malay",
+    "chinese", "malaysian", "indonesian",
+    "peranakan", "nyonya", "hainanese",
+}
+
+# Build compiled regex patterns for English phrases
+def _build_patterns(phrases: list[str]) -> list[tuple[re.Pattern, str]]:
+    patterns = []
+    for phrase in phrases:
+        tokens = re.split(r'[\s-]+', phrase)
+        pattern_str = r'\b' + r'\s*[-\s]*\s*'.join(re.escape(t) for t in tokens) + r'\b'
+        patterns.append((re.compile(pattern_str, re.IGNORECASE), phrase))
+    return patterns
+
+_UNAMBIGUOUS_EN_PATTERNS = _build_patterns(HAWKER_STAPLE_UNAMBIGUOUS_EN)
+_AMBIGUOUS_EN_PATTERNS = _build_patterns(HAWKER_STAPLE_AMBIGUOUS_EN)
 COLD_REQUIRED_PATTERNS = [
     r"cold\s+brew",
     r"冰镇",
@@ -97,21 +145,50 @@ class HardConstraintGuard:
     @classmethod
     def check_fried(cls,name:str, name_cn:str,description:str,description_cn:str)->tuple[bool,str]:
         """Check for fried ingredients.
-           Returns (passed:bool, veto_reson:str)
+           Returns (passed:bool, veto_reason:str)
         """
         combined=f'{name} {name_cn} {description} {description_cn}'
         found,word=cls._contains_any(combined,FRIED_WORDS)
         if found:
-            return False, f"高压线熔断：检测到油炸物相关描述"
+            return False, f"高压线熔断：检测到油炸物相关描述 '{word}'"
+        return True, ""
+
     @classmethod
-    def check_hawker_staple(cls,name:str, name_cn:str,description:str,description_cn:str)->tuple[bool,str]:
-        """Check for ingredients sold in hawker centers.
-           Returns (passed:bool, veto_reson:str)
+    def check_hawker_staple(cls, name: str, name_cn: str,
+                            description: str, description_cn: str,
+                            cuisine: str = "") -> tuple[bool, str]:
+        """Check for hawker centre staple dishes.
+
+        Two-tier matching:
+        - Unambiguous staples (laksa, nasi lemak, etc.): apply to ALL cuisines
+        - Ambiguous staples (chicken rice, 鸡饭, etc.): only apply when
+          cuisine is SEA/Chinese, since these words have different meanings
+          in other cuisines (e.g. "Mole Chicken Rice Bowl" is Mexican, not hawker).
+
+        Returns (passed:bool, veto_reason:str)
         """
-        combined=f'{name} {name_cn} {description} {description_cn}'
-        found,word=cls._contains_any(combined,HAWKER_STAPLE_WORDS)
+        combined = f'{name} {name_cn} {description} {description_cn}'
+        combined_lower = combined.lower()
+
+        # Tier 1: Unambiguous — always check
+        for pattern, original in _UNAMBIGUOUS_EN_PATTERNS:
+            if pattern.search(combined_lower):
+                return False, f"高压线熔断：检测到小贩中心常卖食物相关描述 '{original}'"
+        found, word = cls._contains_any(combined, HAWKER_STAPLE_UNAMBIGUOUS_CN)
         if found:
-            return False, f"高压线熔断：检测到小贩中心常卖食物相关描述"
+            return False, f"高压线熔断：检测到小贩中心常卖食物相关描述 '{word}'"
+
+        # Tier 2: Ambiguous — only check for SEA/Chinese cuisines
+        is_sea = cuisine.lower().strip() in _SEA_CUISINES
+        if is_sea:
+            for pattern, original in _AMBIGUOUS_EN_PATTERNS:
+                if pattern.search(combined_lower):
+                    return False, f"高压线熔断：检测到小贩中心常卖食物相关描述 '{original}'"
+            found, word = cls._contains_any(combined, HAWKER_STAPLE_AMBIGUOUS_CN)
+            if found:
+                return False, f"高压线熔断：检测到小贩中心常卖食物相关描述 '{word}'"
+
+        return True, ""
     @classmethod
     def check_kill(cls, name: str, name_cn: str,
                    description: str, description_cn: str) -> tuple[bool, str]:
@@ -159,12 +236,17 @@ class HardConstraintGuard:
 
         # 2. Kill check (physical format mismatch)
         passed, reason = cls.check_kill(name, name_cn, description, description_cn)
+        if not passed:
+            return False, reason
 
         # 3. Fried check
-        passed,reason=cls.check_fried(name,name_cn, description, description_cn)
+        passed, reason = cls.check_fried(name, name_cn, description, description_cn)
+        if not passed:
+            return False, reason
 
         # 4. Hawker Staple check
-        passed,reason=cls.check_hawker_staple(name,name_cn, description, description_cn)
+        cuisine = proposal.get("cuisine", "")
+        passed, reason = cls.check_hawker_staple(name, name_cn, description, description_cn, cuisine)
         if not passed:
             return False, reason
 
