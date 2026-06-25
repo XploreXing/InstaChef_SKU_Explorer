@@ -8,55 +8,55 @@ from models import DishProposal
 
 
 class TestSourceRefs:
-    def test_dish_proposal_with_source_refs(self):
+    def test_dish_proposal_with_source_urls(self):
         p = DishProposal(
             id=1, name="Test Dish", cuisine="Test",
             price_sgd=5.0, description="A test", differentiation="Unique",
             trend_source="Tavily search",
-            source_refs=["REF_01", "REF_03"],
+            source_urls=["REF_01", "REF_03"],
         )
-        assert p.source_refs == ["REF_01", "REF_03"]
+        assert p.source_urls == ["REF_01", "REF_03"]
 
-    def test_dish_proposal_default_empty_source_refs(self):
+    def test_dish_proposal_default_empty_source_urls(self):
         p = DishProposal(
             id=1, name="Test Dish", cuisine="Test",
             price_sgd=5.0, description="A test", differentiation="Unique",
             trend_source="Tavily search",
         )
-        assert p.source_refs == []
+        assert p.source_urls == []
 
-    def test_source_refs_serializable(self):
+    def test_source_urls_serializable(self):
         from dataclasses import asdict
         p = DishProposal(
             id=1, name="Test Dish", cuisine="Test",
             price_sgd=5.0, description="A test", differentiation="Unique",
             trend_source="Tavily search",
-            source_refs=["REF_01"],
+            source_urls=["REF_01"],
         )
         d = asdict(p)
-        assert d["source_refs"] == ["REF_01"]
+        assert d["source_urls"] == ["REF_01"]
 
 
 class TestRefValidation:
-    def test_empty_source_refs_is_hallucination(self):
-        """Proposals with empty source_refs fail validation."""
-        source_refs = []
+    def test_empty_source_urls_is_hallucination(self):
+        """Proposals with empty source_urls fail validation."""
+        source_urls = []
         ref_map = {"REF_01": "https://example.com"}
-        valid = bool(source_refs) and all(r in ref_map for r in source_refs)
+        valid = bool(source_urls) and all(r in ref_map for r in source_urls)
         assert not valid
 
     def test_fake_ref_is_hallucination(self):
         """Proposals referencing non-existent tags fail validation."""
-        source_refs = ["REF_01", "FAKE_99"]
+        source_urls = ["REF_01", "FAKE_99"]
         ref_map = {"REF_01": "https://example.com"}
-        valid = bool(source_refs) and all(r in ref_map for r in source_refs)
+        valid = bool(source_urls) and all(r in ref_map for r in source_urls)
         assert not valid
 
     def test_valid_refs_pass(self):
         """Proposals with all refs present in ref_map pass."""
-        source_refs = ["REF_01", "REF_03"]
+        source_urls = ["REF_01", "REF_03"]
         ref_map = {"REF_01": "https://a.com", "REF_03": "https://b.com"}
-        valid = bool(source_refs) and all(r in ref_map for r in source_refs)
+        valid = bool(source_urls) and all(r in ref_map for r in source_urls)
         assert valid
 
 

@@ -81,6 +81,6 @@ class TestGuardIntegration:
             else:
                 vetoed_count += 1
 
-        # Pork Rice, Lard Noodles, Cold Soba should be vetoed = 3
-        assert vetoed_count == 3
-        assert passed_count == 5
+        # Pork Rice (halal), Lard Noodles (halal), Cold Soba (cold food), Chicken Rice (hawker staple) = 4
+        assert vetoed_count == 4
+        assert passed_count == 4

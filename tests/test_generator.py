@@ -6,14 +6,13 @@ def test_build_user_message_first_round():
     msg = build_generator_user_message(
         cuisine="Mexican",
         count=7,
-        search_summary="Market research results here.",
         feedback="",
         locked_names=[],
         round_num=1,
     )
     assert "Mexican" in msg
-    assert "Market research results here" in msg
     assert "FIRST ROUND" in msg
+    assert "discover_cuisine" in msg
     assert "Generate 7" in msg
 
 
@@ -21,7 +20,6 @@ def test_build_user_message_with_feedback():
     msg = build_generator_user_message(
         cuisine="Japanese",
         count=5,
-        search_summary="Trend data.",
         feedback="Avoid teriyaki. Focus on curry and omurice.",
         locked_names=["Chicken Teriyaki Don", "Salmon Teriyaki Don"],
         round_num=2,

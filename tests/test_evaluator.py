@@ -16,13 +16,13 @@ def test_build_evaluator_message():
     ]
     msg = build_evaluator_user_message(
         proposals=proposals,
-        existing_skus=existing_skus,
+        cuisine_sku_count=len(existing_skus),
         round_num=1,
         locked_count=0,
         remaining=10,
     )
     assert "Chicken Burrito Bowl" in msg
-    assert "Chee Cheong Fun" in msg
+    assert "Current SKU count" in msg
     assert "Round 1" in msg
 
 

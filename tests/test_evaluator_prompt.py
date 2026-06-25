@@ -39,10 +39,11 @@ class TestPromptStructure:
         assert "0" in prompt
 
     def test_bacon_edge_case_rules(self):
-        """Bacon/sausage edge cases must have explicit rules."""
-        prompt = _load_prompt()
-        assert "bacon" in prompt.lower() or "培根" in prompt
-        assert "turkey" in prompt.lower() or "火鸡" in prompt or "beef" in prompt.lower() or "牛肉" in prompt
+        """Bacon/sausage edge cases are handled by deterministic guard, not prompt."""
+        # ponytail: bacon check moved from LLM prompt to HardConstraintGuard
+        from utils.guard import HardConstraintGuard
+        result, _ = HardConstraintGuard.precheck({"name": "Bacon Rice", "name_cn": "培根饭", "description": "bacon", "description_cn": "培根", "cuisine": "Chinese", "price_sgd": 5, "differentiation": "", "trend_source": ""})
+        assert result is False  # bacon vetoed by guard
 
     def test_contains_fried_constraint(self):
         """Deep-fried constraint must be present."""

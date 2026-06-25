@@ -184,3 +184,35 @@ class TestCombined:
         })
         assert passed
         assert reason == ""
+
+
+def test_sake_triggers_veto():
+        passed, reason = HardConstraintGuard.check_haram(
+            "Sake Steamed Chicken", "", "Chicken steamed with sake", ""
+        )
+        assert not passed
+        assert "sake" in reason
+
+
+def test_mirin_triggers_veto():
+        passed, reason = HardConstraintGuard.check_haram(
+            "Mirin Glazed Salmon", "", "Salmon glazed with mirin", ""
+        )
+        assert not passed
+        assert "mirin" in reason
+
+
+def test_wine_triggers_veto():
+        passed, reason = HardConstraintGuard.check_haram(
+            "Red Wine Beef Stew", "", "Beef stewed in red wine", ""
+        )
+        assert not passed
+        assert "wine" in reason
+
+
+def test_gelatin_triggers_veto():
+        passed, reason = HardConstraintGuard.check_haram(
+            "Gelatin Dessert Bowl", "", "Sweet gelatin dessert", ""
+        )
+        assert not passed
+        assert "gelatin" in reason

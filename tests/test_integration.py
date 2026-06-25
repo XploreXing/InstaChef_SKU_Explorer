@@ -17,11 +17,10 @@ def test_orchestrator_state_transitions(monkeypatch):
     assert orch.state == OrchestratorState.INIT
     assert len(orch.existing_skus) > 0
 
-    # Generator/evaluator/searcher are initialised but no API calls are made
+    # Evaluator is initialised but no API calls are made
+    # Generator is per-thread, not stored on orchestrator
     orch._init_agents()
-    assert orch.generator is not None
     assert orch.evaluator is not None
-    assert orch.searcher is not None
 
 
 def test_data_loader_integration():
