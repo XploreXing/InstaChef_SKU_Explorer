@@ -25,7 +25,7 @@ class DishProposal:
     trend_source: str
     name_cn: str = ""
     description_cn: str = ""
-    source_refs: list[str] = field(default_factory=list)
+    source_urls: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -64,8 +64,9 @@ class RoundResult:
     improvement_suggestions: str
     elapsed_seconds: float
     stage_traces: list[StageTrace] = field(default_factory=list)
-    ref_map: dict = field(default_factory=dict)
-    lineage_results: list = field(default_factory=list)
+    ref_map: dict = field(default_factory=dict)          # deprecated: always {} after search migration
+    lineage_results: list = field(default_factory=list)  # deprecated: always [] after search migration
+
 
 
 @dataclass
@@ -149,3 +150,22 @@ class ProcessedCommodity:
     name: str
     description: str
     cuisine_type: str          # Chinese/Japanese/Korean/Thai/Singaporean-Malay/Mexican/Other
+
+# ── Tool Context (thread-safe: one per GeneratorAgent instance) ──────────
+
+@dataclass
+class ToolContext:
+    """Per-generator-instance context. Each thread gets its own.
+
+    Attributes:
+        cuisine: Target cuisine for this generation run.
+        existing_skus: Existing SKU list for duplicate checking.
+        config: Full config dict (generator_tools needs config["search"]).
+        source_urls: Mapping from REF tag -> actual URL (populated by search tools).
+        source_contents: Mapping from REF tag -> content snippet (for traceability).
+    """
+    cuisine: str = ""
+    existing_skus: list = field(default_factory=list)
+    config: dict = field(default_factory=dict)
+    source_urls: dict[str, str] = field(default_factory=dict)
+    source_contents: dict[str, str] = field(default_factory=dict)

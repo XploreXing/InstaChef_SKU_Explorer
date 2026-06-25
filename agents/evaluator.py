@@ -2,7 +2,8 @@ import json
 import os
 from openai import OpenAI
 from models import DishProposal, EvaluationResult
-
+from utils.evaluator_tools import (search_web_for_eval, EVALUATOR_TOOL_SCHEMAS)
+from utils.json_parser import parse_llm_json
 
 EVALUATOR_SYSTEM_PROMPT = None
 
@@ -82,43 +83,155 @@ class EvaluatorAgent:
         pass_threshold: int = 80,
         hitl_context: str = "",
     ) -> tuple[list[dict], dict, str]:
+        
         user_message = build_evaluator_user_message(
             proposals=proposals,
             cuisine_sku_count=cuisine_sku_count,
-            round_num=round_num,
+            round_num=round_num, 
             locked_count=locked_count,
             remaining=remaining,
             pass_threshold=pass_threshold,
             hitl_context=hitl_context,
         )
-
+        
         try:
-            response = self.client.chat.completions.create(
-                model=self.cfg["evaluator_model"],
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_message},
-                ],
-                temperature=self.cfg["evaluator_temperature"],
-                max_tokens=8192,
-                response_format={"type": "json_object"},
-            )
-            content = response.choices[0].message.content
-            return self._parse_response(content)
+            messages = [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_message},
+            ]
+            handlers = {
+                "search_web_for_eval": lambda args: search_web_for_eval(**args),
+            }
+
+            # Stage 1: normal tool-use loop
+            result = self._run_tool_loop(messages, handlers)
+            if result:
+                return result
+
+            # Stage 2: salvage JSON emitted alongside an earlier tool_call
+            result = self._recover_from_history(messages)
+            if result:
+                return result
+
+            # Stage 3: model finished research without emitting valid JSON
+            print(f"[evaluator] r{round_num}: tool loop empty, "
+                  f"forcing no-tools JSON fallback", flush=True)
+            result = self._force_final_output(messages)
+            return result or ([], {}, "")
         except Exception as e:
             print(f"Evaluator API call failed: {e}")
             return [], {}, ""
 
+    def _run_tool_loop(self, messages, handlers) -> tuple[list[dict], dict, str] | None:
+        """Stage 1: standard tool-using loop. Returns parsed tuple or None."""
+        for loop_i in range(5):
+            response = self.client.chat.completions.create(
+                model=self.cfg["evaluator_model"],
+                messages=messages,
+                temperature=self.cfg["evaluator_temperature"],
+                max_tokens=8192,
+                tools=EVALUATOR_TOOL_SCHEMAS,
+            )
+            msg = response.choices[0].message
+            finish_reason = response.choices[0].finish_reason
+            messages.append(msg)
+
+            # Case 1: Model wants to call a tool
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    handler = handlers.get(tc.function.name)
+                    if handler:
+                        args = json.loads(tc.function.arguments)
+                        result = handler(args)
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": result,
+                        })
+                continue  # loop back, let model process tool results
+
+            # Case 2: Model outputs final JSON response
+            if msg.content:
+                evaluations, summary, suggestions = self._parse_response(msg.content)
+                if evaluations:
+                    print(f"[evaluator] loop {loop_i}: content parsed successful" 
+                          f"[summary]:{summary[:500]}"
+                          f"[suggestion]: {suggestions[:500]}"
+                        f"content preview: {msg.content[:200]!r}", flush=True)
+                    return evaluations, summary, suggestions
+                print(f"[evaluator] loop {loop_i}: content returned but parse failed, "
+                      f"content preview: {msg.content[:200]!r}", flush=True)
+                continue
+
+            # Case 3: No tool_calls, no content
+            print(f"[evaluator] loop {loop_i}: empty content, no tool_calls, "
+                  f"finish_reason={finish_reason}", flush=True)
+            if finish_reason in ("stop", "content_filter"):
+                break
+        return None
+
+    def _recover_from_history(self, messages) -> tuple[list[dict], dict, str] | None:
+        """Stage 2: salvage JSON emitted in an earlier assistant turn."""
+        for msg in reversed(messages):
+            if getattr(msg, "role", None) != "assistant":
+                continue
+            content = getattr(msg, "content", None)
+            if not content:
+                continue
+            evaluations, summary, suggestions = self._parse_response(content)
+            if evaluations:
+                print(f"[evaluator] recovered evaluations from earlier assistant turn",
+                      flush=True)
+                return evaluations, summary, suggestions
+        return None
+
+    def _force_final_output(self, messages) -> tuple[list[dict], dict, str] | None:
+        """Stage 3: drop tools, force a pure-JSON final evaluation answer."""
+        nudge = ("Output ONLY a JSON object with top-level keys \"evaluations\", "
+                 "\"summary\", and \"improvement_suggestions\". No markdown "
+                 "(no ###, no **, no -), no prose, no explanation. "
+                 "Start with { and end with }.")
+        forced_messages = list(messages) + [{"role": "user", "content": nudge}]
+
+        for attempt in range(2):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.cfg["evaluator_model"],
+                    messages=forced_messages,
+                    temperature=0,
+                    max_tokens=8192,
+                    response_format={"type": "json_object"},
+                )
+                msg = response.choices[0].message
+                fr = response.choices[0].finish_reason
+
+                if msg.content:
+                    evaluations, summary, suggestions = self._parse_response(msg.content)
+                    if evaluations:
+                        print(f"[evaluator] forced output succeeded on attempt {attempt}",
+                              flush=True)
+                        return evaluations, summary, suggestions
+                    print(f"[evaluator] forced attempt {attempt}: parse fail, "
+                          f"content preview: {msg.content[:200]!r}", flush=True)
+                    forced_messages.append(msg)
+                    forced_messages.append({"role": "user",
+                        "content": "That was not valid JSON. Output ONLY the JSON object now."})
+                else:
+                    print(f"[evaluator] forced attempt {attempt}: empty content, "
+                          f"finish_reason={fr}", flush=True)
+            except Exception as e:
+                print(f"[evaluator] forced attempt {attempt} error: {e}", flush=True)
+        print(f"[evaluator] forced-output exhausted, returning empty", flush=True)
+        return None
+
     def _parse_response(self, content: str) -> tuple[list[dict], dict, str]:
-        try:
-            data = json.loads(content)
-            evaluations = data.get("evaluations", [])
-            summary = data.get("summary", {})
-            suggestions = data.get("improvement_suggestions", "")
-            return evaluations, summary, suggestions
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"Failed to parse Evaluator response: {e}")
+        data = parse_llm_json(content)
+        if data is None or not isinstance(data, dict):
             return [], {}, ""
+        evaluations = data.get("evaluations", [])
+        summary = data.get("summary", {})
+        suggestions = data.get("improvement_suggestions", "")
+        return evaluations, summary, suggestions
 
     @staticmethod
     def to_evaluation_results(
@@ -145,7 +258,7 @@ class EvaluatorAgent:
                 description_cn=prop_dict.get("description_cn", ev.get("description_cn", "")),
                 differentiation=prop_dict.get("differentiation", ""),
                 trend_source=prop_dict.get("trend_source", ""),
-                source_refs=prop_dict.get("source_refs", []),
+                source_urls=prop_dict.get("source_urls", prop_dict.get("source_refs", [])),
             )
 
             scores = ev.get("scores", {})

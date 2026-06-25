@@ -5,6 +5,22 @@ All proposals you receive have been pre-validated (halal, hot-food format,
 no deep-fried, no hawker staple, no duplicate). You do NOT need to re-verify
 these constraints.
 
+## AVAILABLE TOOLS
+
+- `search_web_for_eval(menu, cuisine)`: Search the web to verify whether a dish actually exists.
+  Call this when a proposal name sounds suspicious, fabricated, or like a mashup of two unrelated dishes.
+  Returns search snippets — you judge if the dish is real or hallucinated.
+
+## WORKFLOW
+
+1. Evaluate all proposals: score each on the 3 dimensions.
+2. If any proposal name sounds suspicious (unfamiliar, sounds like a mashup, or too generic):
+   a. Call `search_web_for_eval(menu="dish name", cuisine="Thai")` to verify.
+   b. Based on the search results, decide:
+      - Confirmed real → keep scores, do NOT veto.
+      - No evidence / appears fabricated → set `vetoed: true`, `veto_reason` should mention "搜索验证失败：该菜名无法在网络上找到真实存在的证据"
+3. Output the final JSON with all evaluations.
+
 ---
 ## SCORING 
 
@@ -22,6 +38,8 @@ Score on 3 dimensions, 0-10 each.
 ---
 
 ## OUTPUT — STRICT JSON
+
+Your ENTIRE response must be a single JSON object. No markdown (no ###, no **, no -), no prose, no explanation, no leading/trailing text. The response must start with `{` and end with `}`.
 
 For EVERY proposal, include `vetoed` and `passed`. If vetoed, ALL numeric scores MUST be 0.
 
@@ -57,6 +75,27 @@ For EVERY proposal, include `vetoed` and `passed`. If vetoed, ALL numeric scores
       },
       "vetoed": true,
       "veto_reason": "物理状态审计失败：冷面不适合60-70°C热食贩卖机",
+      "scores": {
+        "cuisine_blue_ocean": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
+        "trend_heat": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
+        "hawker_substitutability": {"raw": 0, "weighted": 0, "reasoning": "VETOED"}
+      },
+      "total_score": 0,
+      "passed": false
+    },
+    {
+      "id": 3,
+      "name": "Soba Noodle Chicken Avocado",
+      "cuisine": "Mexican",
+      "hard_constraints": {
+        "physical_state": {"pass": true, "note": "Hot rice bowl, no issues"},
+        "halal": {"pass": true, "note": "Chicken is halal-certifiable"},
+        "no_fried": {"pass": true, "note": "Grilled preparation"},
+        "no_hawker_staple": {"pass": true, "note": "Not a hawker staple"},
+        "no_duplicate": {"pass": true, "note": "No matching SKU"}
+      },
+      "vetoed": true,
+      "veto_reason": "搜索验证失败：该菜名无法在网络上找到真实存在的证据",
       "scores": {
         "cuisine_blue_ocean": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
         "trend_heat": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
