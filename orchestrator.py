@@ -11,7 +11,7 @@ from utils.feedback_loader import _normalize_name
 from utils.observability import ObservabilityLogger
 from agents.generator import GeneratorAgent
 from agents.evaluator import EvaluatorAgent
-from utils.search import FoodTrendSearcher
+import threading
 from utils.duplication_checker import check_duplicates
 
 class Orchestrator:
@@ -27,9 +27,9 @@ class Orchestrator:
         self.stop_check = None  # callable -> bool, set by caller to enable cancellation
         self.sku_loader: SKUDataLoader | None = None
         self.existing_skus: list[ProcessedCommodity] = []
-        self.generator: GeneratorAgent | None = None
         self.evaluator: EvaluatorAgent | None = None
-        self.searcher: FoodTrendSearcher | None = None
+        self._eval_lock: threading.Lock | None = None
+        
         self.obs: "ObservabilityLogger | None" = None  # set by app.py or tests
 
     def load_skus(self):
@@ -38,23 +38,30 @@ class Orchestrator:
         self.state = OrchestratorState.INIT #如果改为外部并发，即多个进程同时启动_process_cuisine是，因为这个state当前状态对并发完全没意义，只有内部的locked,round_num这些内部变量可以充当状态
 
     def _init_agents(self):
-        if self.generator is None:
-            self.generator = GeneratorAgent(self.config)
         if self.evaluator is None:
             self.evaluator = EvaluatorAgent(self.config)
-        if self.searcher is None:
-            self.searcher = FoodTrendSearcher(self.config)
+        self._eval_lock = threading.Lock()
+       
 
     def run(self, cuisines: list[str] | None = None) -> FinalOutput:
         targets = cuisines or self.config["orchestrator"]["cuisines"]
         self._init_agents()
         t_start = time.time()
-
-        for cuisine in targets:
-            if self.stop_check and self.stop_check():
-                break
-            result = self._process_cuisine(cuisine)
-            self.results[cuisine] = result
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+            futures={
+                pool.submit(self._process_cuisine, c) :c for c in targets
+            }
+            self.results={}
+            for future in as_completed(futures):
+                cuisine=futures[future]
+                try:
+                    self.results[cuisine]=future.result()
+                except Exception as e:
+                    print(f'{cuisine}failed : {e}',flush=True)
+                    self.results[cuisine]=CuisineResult(
+                        cuisine=cuisine,total_rounds=0,locked=[],rounds_history=[],
+                    )
 
         self.state = OrchestratorState.AGGREGATING
         output = FinalOutput(
@@ -72,75 +79,16 @@ class Orchestrator:
 
     def _process_cuisine(self, cuisine: str) -> CuisineResult:
         cfg = self.config["orchestrator"]
+        #Each thread gets its own Generator (Thread-safe ToolContext)
+        generator=GeneratorAgent(self.config)
+        evaluator=self.evaluator
+
         locked: list[EvaluationResult] = []
         rounds_history: list[RoundResult] = []
         feedback = ""
         current_threshold = cfg["pass_threshold"]  # may auto-lower between rounds
 
         cuisine_skus = self.sku_loader.get_by_cuisine(cuisine)
-
-
-        # Searching
-        self._emit(cuisine, 0, "searching", {
-            "locked_count": 0,
-            "remaining": cfg["target_per_cuisine"],
-        })
-        # Trace: search
-        t_search = time.time()
-        search_results = self.searcher.search_cuisine(cuisine)
-        # Save raw search snippets for validation
-        self._save_search_snippets(cuisine, search_results)
-        trace_search = StageTrace(
-            stage="search",
-            elapsed_ms=(time.time() - t_search) * 1000,
-            model_name="tavily",
-            input_size_chars=len(cuisine),
-            output_size_chars=sum(len(str(r)) for r in search_results),
-        )
-        self._obs_emit(
-            cuisine=cuisine, round_num=0, stage="search",
-            event_type="stage_end", status="success",
-            elapsed_ms=trace_search.elapsed_ms,
-            model_name="tavily",
-            input_size_chars=len(cuisine),
-            output_size_chars=sum(len(str(r)) for r in search_results),
-            payload={
-                "raw_result_count": len(search_results),
-                "queries_used": self.searcher.last_hop1_queries if hasattr(self.searcher, "last_hop1_queries") else [],
-            },
-        )
-
-        # Summarizing
-        self._emit(cuisine, 0, "summarizing", {
-            "locked_count": 0,
-            "remaining": cfg["target_per_cuisine"],
-        })
-        # Trace: summarize
-        t_summarize = time.time()
-        search_summary, ref_map, ref_contents, ref_source_types = self.searcher.summarize_for_generator(
-            search_results, cuisine
-        )
-        trace_summarize = StageTrace(
-            stage="summarize",
-            elapsed_ms=(time.time() - t_summarize) * 1000,
-            model_name=self.config["llm"].get("generator_model", "n/a"),
-            input_size_chars=sum(len(str(r)) for r in search_results),
-            output_size_chars=len(search_summary),
-        )
-        self._obs_emit(
-            cuisine=cuisine, round_num=0, stage="summarize",
-            event_type="stage_end", status="success",
-            elapsed_ms=trace_summarize.elapsed_ms,
-            model_name=trace_summarize.model_name,
-            input_size_chars=trace_summarize.input_size_chars,
-            output_size_chars=len(search_summary),
-            payload={
-                "summary_length_chars": len(search_summary),
-                "ref_map_size": len(ref_map),
-                "menu_refs": sum(1 for t in ref_source_types.values() if t == "menu"),
-                "trend_refs": sum(1 for t in ref_source_types.values() if t == "trend"),
-            },
-        )
 
         for round_num in range(1, cfg["max_rounds_per_cuisine"] + 1):
             if self.stop_check and self.stop_check():
@@ -176,25 +124,22 @@ class Orchestrator:
             # Trace: generate
             t_gen = time.time()
             locked_names = [e.proposal.name for e in locked]
-            augmented_search = search_summary
-            if feedback_summary:
-                augmented_search = search_summary + "\n\n" + feedback_summary[:500]
 
-            print(f"  [generate] search_summary={len(augmented_search)} chars, cuisine={cuisine}", flush=True)
-            proposal_dicts = self.generator.generate(
+            print(f"  [generate] cuisine={cuisine}, round={round_num}, existing_skus={len(cuisine_skus)}", flush=True)
+            proposal_dicts = generator.generate(
                 cuisine=cuisine,
                 count=remaining + 5,
-                search_summary=augmented_search,
                 feedback=feedback,
                 locked_names=locked_names,
                 round_num=round_num,
-            ) ##这个部分实际上就是在向generator这个agent传递上下文，而orchestrator本身不是一个LLM是for循环和if判断
+                existing_skus=cuisine_skus,
+            )
 
             trace_generate = StageTrace(
                 stage="generate",
                 elapsed_ms=(time.time() - t_gen) * 1000,
                 model_name=self.config["llm"].get("generator_model", "n/a"),
-                input_size_chars=len(search_summary) + len(feedback),
+                input_size_chars=len(feedback),
                 output_size_chars=sum(len(str(p)) for p in proposal_dicts) if proposal_dicts else 0,
             )
             self._obs_emit(
@@ -231,7 +176,7 @@ class Orchestrator:
                             description_cn=p.get("description_cn", ""),
                             differentiation=p.get("differentiation", ""),
                             trend_source=p.get("trend_source", ""),
-                            source_refs=p.get("source_refs", []),
+                            source_urls=p.get("source_urls", []),
                         ),
                         vetoed=True,
                         veto_reason="HITL黑名单：确定性去重（此前被人工拒绝）",
@@ -253,189 +198,14 @@ class Orchestrator:
                             "immediate": True,
                         },
                     )
-
-            # --- Task 4: Source-ref lineage validation (fast-fail hallucinations) ---
-            lineage_vetoed: list[EvaluationResult] = []
-            validated_proposals: list[dict] = []
-            lineage_log: list[dict] = []  # audit trail for lineage_<ts>.json
-
-            for p in proposal_dicts:
-                refs = p.get("source_refs", [])
-                valid = bool(refs) and all(r in ref_map for r in refs)
-
-                # --- Dual-evidence check ---
-                dish_name_matched = False
-                trend_matched = False
-                evidence_level = "none"
-                checked_terms: list[str] = []
-
-                if valid and ref_contents:
-                    # Determine best source type among referenced results
-                    ref_types = [
-                        ref_source_types.get(r, "trend") for r in refs
-                        if r in ref_source_types
-                    ]
-                    has_menu = "menu" in ref_types
-                    evidence_level = "menu" if has_menu else "trend"
-
-                    # Dish name match: signature phrase (first 60% words)
-                    # Filter out regional/cuisine sub-type names that appear in
-                    # every food article but prove nothing about a specific dish
-                    _REGION_NOISE = {
-                        "sichuan", "hunan", "cantonese", "teochew", "hokkien",
-                        "wenzhou", "yangzhou", "lanzhou", "shanghai", "beijing",
-                        "fujian", "yunnan", "xinjiang", "guizhou", "jiangxi",
-                        "jiangsu", "shaanxi", "hakka", "dongbei", "hainanese",
-                        "shanghainese", "chinese", "chongqing", "jiangnan",
-                    }
-                    # Words so common in food content they prove nothing
-                    _COOKING_NOISE = {
-                        "with", "dry", "style", "rice", "bowl", "noodles",
-                        "sauce", "fresh", "hot", "warm", "served", "dish",
-                        "fried", "grilled", "braised", "soup",
-                        "beef", "duck", "fish", "tea", "steamed",
-                        "chicken", "lamb", "pork", "egg", "tofu",
-                    }
-                    name = p.get("name", "")
-                    words = name.split() or [name]
-                    n = max(1, -(-len(words) * 3 // 5))
-                    signature_words = [
-                        w for w in words[:n]
-                        if w.lower().strip(",.()") not in _REGION_NOISE
-                    ]
-                    # If all words were region noise, fall back to full name
-                    if not signature_words:
-                        signature_words = words[:n]
-                    signature_phrase = " ".join(
-                        w.lower().strip(",.()") for w in signature_words
-                    )
-                    checked_terms.append(f"dish:{signature_phrase}")
-
-                    evidence_hits: list[dict] = []
-                    ref_texts = " ".join(
-                        ref_contents.get(r, "") for r in refs if r in ref_contents
-                    ).lower()
-
-                    if signature_phrase in ref_texts:
-                        dish_name_matched = True
-                        # Extract snippet around matched phrase
-                        idx = ref_texts.find(signature_phrase)
-                        start = max(0, idx - 40)
-                        end = min(len(ref_texts), idx + len(signature_phrase) + 40)
-                        evidence_hits.append({
-                            "term": signature_phrase,
-                            "snippet": ref_texts[start:end],
-                        })
-                    else:
-                        for w in signature_words:
-                            w_clean = w.lower().strip(",.()")
-                            if (len(w_clean) >= 3
-                                    and w_clean not in _COOKING_NOISE
-                                    and w_clean in ref_texts):
-                                dish_name_matched = True
-                                checked_terms.append(f"partial:{w_clean}")
-                                idx = ref_texts.find(w_clean)
-                                start = max(0, idx - 40)
-                                end = min(len(ref_texts), idx + len(w_clean) + 40)
-                                evidence_hits.append({
-                                    "term": w_clean,
-                                    "snippet": ref_texts[start:end],
-                                })
-                                break
-
-                    # Trend match: cuisine name, food-type keywords (loose)
-                    trend_signals = [
-                        cuisine.lower(),
-                        cuisine.lower().split("/")[0].strip(),
-                        "rice", "bowl", "noodle", "grilled", "braised",
-                        "curry", "spicy", "halal",
-                    ]
-                    for ts in trend_signals:
-                        if ts in ref_texts:
-                            trend_matched = True
-                            checked_terms.append(f"trend:{ts}")
-                            break  # one trend signal is enough
-
-                # Determine if any referenced source came from Hop 2 (menu deep-search)
-                hop2_count = sum(
-                    1 for r in refs
-                    if r in ref_contents and ref_source_types.get(r) == "menu"
-                )
-
-                lineage_log.append({
-                    "name": p.get("name", ""),
-                    "name_cn": p.get("name_cn", ""),
-                    "source_refs": refs,
-                    "validated": valid,
-                    "evidence_level": evidence_level,
-                    "dish_name_matched": dish_name_matched,
-                    "trend_matched": trend_matched,
-                    "hop2_refs": hop2_count,
-                    "checked_terms": checked_terms,
-                    "evidence_hits": evidence_hits,
-                    "ref_urls": {r: ref_map[r] for r in refs if r in ref_map} if valid else {},
-                })
-                if valid:
-                    self._obs_emit(
-                        cuisine=cuisine, round_num=round_num, stage="generate",
-                        event_type="lineage", status="success",
-                        payload={
-                            "proposal_name": p.get("name", ""),
-                            "proposal_name_cn": p.get("name_cn", ""),
-                            "source_refs": refs,
-                            "validated": valid,
-                            "evidence_level": evidence_level,
-                            "dish_name_matched": dish_name_matched,
-                            "trend_matched": trend_matched,
-                            "hop2_refs": hop2_count,
-                            "checked_terms": checked_terms,
-                            "evidence_hits": evidence_hits,
-                        },
-                    )
-                if not valid:
-                    lineage_vetoed.append(EvaluationResult(
-                        proposal=DishProposal(
-                            id=p.get("id", 0),
-                            name=p.get("name", ""),
-                            name_cn=p.get("name_cn", ""),
-                            cuisine=p.get("cuisine", ""),
-                            price_sgd=p.get("price_sgd", 0),
-                            description=p.get("description", ""),
-                            description_cn=p.get("description_cn", ""),
-                            differentiation=p.get("differentiation", ""),
-                            trend_source=p.get("trend_source", ""),
-                            source_refs=p.get("source_refs", []),
-                        ),
-                        vetoed=True,
-                        veto_reason="幻觉数据：未引用有效搜索来源（source_refs 为空或包含无效引用标签）",
-                        cuisine_blue_ocean=0,
-                        trend_heat=0,
-                        hawker_substitutability=0,
-                        total_score=0,
-                        passed=False,
-                        reasoning="数据谱系验证失败 — Fast-Failure 拦截",
-                    ))
-                    self._obs_emit(
-                        cuisine=cuisine, round_num=round_num, stage="generate",
-                        event_type="veto", status="success",
-                        payload={
-                            "proposal_name": p.get("name", ""),
-                            "proposal_name_cn": p.get("name_cn", ""),
-                            "veto_layer": "lineage",
-                            "veto_reason": "幻觉数据：未引用有效搜索来源",
-                            "immediate": True,
-                        },
-                    )
-                else:
-                    # Inject ref_map URLs for traceability
-                    p["_ref_urls"] = {r: ref_map[r] for r in refs}
-                    validated_proposals.append(p)
+            #不再需要在Orchestrator的逻辑中进行lineage validation逻辑
+           
 
             # --- Task 1: Hard-coded guard pre-check (before Evaluator LLM) ---
             guard_vetoed: list[EvaluationResult] = []
             guard_passed_proposals: list[dict] = []
 
-            for p in validated_proposals:
+            for p in proposal_dicts:
                 passed, veto_reason = HardConstraintGuard.precheck(p)
                 if not passed:
                     guard_vetoed.append(EvaluationResult(
@@ -449,7 +219,7 @@ class Orchestrator:
                             description_cn=p.get("description_cn", ""),
                             differentiation=p.get("differentiation", ""),
                             trend_source=p.get("trend_source", ""),
-                            source_refs=p.get("source_refs", []),
+                            source_urls=p.get("source_urls", []),
                         ),
                         vetoed=True,
                         veto_reason=veto_reason,
@@ -485,40 +255,40 @@ class Orchestrator:
                 if is_dup:
                     dup_vetoed.append(EvaluationResult(
                         proposal=DishProposal(
-                        id=p.get("id", 0),
-                        name=p.get("name", ""),
-                        name_cn=p.get("name_cn", ""),
-                        cuisine=p.get("cuisine", ""),
-                        price_sgd=p.get("price_sgd", 0),
-                        description=p.get("description", ""),
-                        description_cn=p.get("description_cn", ""),
-                        differentiation=p.get("differentiation", ""),
-                        trend_source=p.get("trend_source", ""),
-                        source_refs=p.get("source_refs", []),
-            ),
-                vetoed=True,
-                veto_reason=reason,
-                cuisine_blue_ocean=0,
-                trend_heat=0,
-                hawker_substitutability=0,
-                total_score=0,
-                passed=False,
-                reasoning=f"去重检查 — 确定性拦截 (相似度 {score:.0%})",
-            ))
+                            id=p.get("id", 0),
+                            name=p.get("name", ""),
+                            name_cn=p.get("name_cn", ""),
+                            cuisine=p.get("cuisine", ""),
+                            price_sgd=p.get("price_sgd", 0),
+                            description=p.get("description", ""),
+                            description_cn=p.get("description_cn", ""),
+                            differentiation=p.get("differentiation", ""),
+                            trend_source=p.get("trend_source", ""),
+                            source_urls=p.get("source_urls", []),
+                        ),
+                        vetoed=True,
+                        veto_reason=reason,
+                        cuisine_blue_ocean=0,
+                        trend_heat=0,
+                        hawker_substitutability=0,
+                        total_score=0,
+                        passed=False,
+                        reasoning=f"去重检查 — 确定性拦截 (相似度 {score:.0%})",
+                    ))
                     self._obs_emit(
-                    cuisine=cuisine, round_num=round_num, stage="evaluate",
-                    event_type="veto", status="success",
-                    payload={
-                "proposal_name": p.get("name", ""),
-                "proposal_name_cn": p.get("name_cn", ""),
-                "veto_layer": "duplicate",
-                "veto_reason": reason,
-                "similarity": round(score, 3),
-                "immediate": True,
-            },
-        )
-            else:
-                dup_passed_proposals.append(p)
+                        cuisine=cuisine, round_num=round_num, stage="evaluate",
+                        event_type="veto", status="success",
+                        payload={
+                            "proposal_name": p.get("name", ""),
+                            "proposal_name_cn": p.get("name_cn", ""),
+                            "veto_layer": "duplicate",
+                            "veto_reason": reason,
+                            "similarity": round(score, 3),
+                            "immediate": True,
+                        },
+                    )
+                else:
+                    dup_passed_proposals.append(p)
 
             # EVALUATING — only guard-passed proposals go to LLM
             self.state = OrchestratorState.EVALUATING
@@ -528,11 +298,6 @@ class Orchestrator:
                 "locked_count": len(locked),
                 "remaining": remaining,
             })
-
-            # Only pass current cuisine's SKUs
-            cuisine_skus = [
-                s for s in self.existing_skus if s.cuisine_type == cuisine
-            ]
 
             # Trace: evaluate
             t_eval = time.time()
@@ -554,14 +319,15 @@ class Orchestrator:
                 hitl_context = "\n".join(lines)
 
             if dup_passed_proposals:
-                evaluations_raw, summary, suggestions = self.evaluator.evaluate(
-                    proposals=guard_passed_proposals,
-                    cuisine_sku_count=len(cuisine_skus),
-                    round_num=round_num,
-                    locked_count=len(locked),
-                    remaining=remaining,
-                    pass_threshold=current_threshold,
-                    hitl_context=hitl_context,
+                with self._eval_lock:
+                    evaluations_raw, summary, suggestions = evaluator.evaluate(
+                        proposals=dup_passed_proposals,
+                        cuisine_sku_count=len(cuisine_skus),
+                        round_num=round_num,
+                        locked_count=len(locked),
+                        remaining=remaining,
+                        pass_threshold=current_threshold,
+                        hitl_context=hitl_context,
                 )
 
                 if evaluations_raw:
@@ -600,43 +366,17 @@ class Orchestrator:
                 },
             )
 
-            # Combine: HITL-vetoed + lineage-vetoed + guard-vetoed + LLM-evaluated
-            evaluation_results = hitl_vetoed + lineage_vetoed + guard_vetoed + dup_vetoed + llm_results
-
-            # JUDGING — apply evidence penalty before pass/fail
-            self.state = OrchestratorState.JUDGING
-            for i, e in enumerate(evaluation_results):
-                if not e.vetoed and i < len(lineage_log):
-                    li = lineage_log[i]
-                    if not li.get("dish_name_matched"):
-                        # Weak evidence: dish name not found in search content
-                        # Check if trend_match is only generic (cuisine name)
-                        terms = li.get("checked_terms", [])
-                        generic_only = all(
-                            t.startswith("trend:") for t in terms
-                        ) if terms else True
-                        penalty = 10 if generic_only else 5
-                        e.total_score = max(0, e.total_score - penalty)
-                        e.passed = e.total_score >= current_threshold
-                        e.reasoning += (
-                            f" [证据降权-{penalty}: dish_name未匹配"
-                            + ("且仅有泛化趋势信号" if generic_only else "")
-                            + "]"
-                        )
+            # Combine: HITL-vetoed + guard-vetoed + dup-vetoed + LLM-evaluated
+            evaluation_results = hitl_vetoed + guard_vetoed + dup_vetoed + llm_results
 
             new_passed = [e for e in evaluation_results if e.passed]
             new_rejected = [e for e in evaluation_results if not e.passed]
 
             # Observability: judging stage summary
-            evidence_penalties = sum(
-                1 for e in evaluation_results
-                if not e.vetoed and "[证据降权" in (e.reasoning or "")
-            )
             self._obs_emit(
                 cuisine=cuisine, round_num=round_num, stage="judging",
                 event_type="stage_end", status="success",
                 payload={
-                    "evidence_penalties_applied": evidence_penalties,
                     "threshold": current_threshold,
                     "new_locked": len(new_passed),
                     "total_locked": len(locked) + len(new_passed),
@@ -663,8 +403,8 @@ class Orchestrator:
                 evaluations=evaluation_results,
                 improvement_suggestions=suggestions,
                 elapsed_seconds=time.time() - t_round,
-                ref_map=ref_map,
-                lineage_results=lineage_log,
+                ref_map={},
+                lineage_results=[],
             )
             rounds_history.append(round_result)
             self._emit_round_complete(round_result)
@@ -714,8 +454,6 @@ class Orchestrator:
 
             # Collect all stage traces for this round
             round_traces = [trace_generate, trace_evaluate, trace_feedback]
-            if round_num == 1:
-                round_traces = [trace_search, trace_summarize] + round_traces
 
             round_result.stage_traces = round_traces
 
@@ -965,52 +703,8 @@ Output JSON:
                 risk_direction="(LLM summary unavailable)",
                 top_recommendations=top_passed,
             )
-
-    def _save_search_snippets(self, cuisine: str, results: list[dict]):
-        """Persist raw Tavily search snippets for validation."""
-        import json as _json
-        from datetime import datetime
-        from pathlib import Path
-
-        log_dir = Path("data/logs")
-        log_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = log_dir / f"search_snippets_{ts}.json"
-
-        snippets = []
-        for r in results:
-            snippets.append({
-                "title": r.get("title", ""),
-                "url": r.get("url", ""),
-                "content": r.get("content", "")[:500],
-                "source_type": r.get("source_type", "trend"),
-                "evidence_level": r.get("evidence_level", "trend"),
-            })
-
-        with open(path, "w") as f:
-            _json.dump({
-                "timestamp": ts,
-                "cuisine": cuisine,
-                "total_results": len(snippets),
-                "snippets": snippets,
-            }, f, ensure_ascii=False, indent=2)
-
-        # Emit individual snippet events — one per Tavily result — so
-        # the full evidence chain (search content → Generator → lineage →
-        # evaluation → veto) is traceable with a single jq query.
-        for i, s in enumerate(snippets):
-            self._obs_emit(
-                cuisine=cuisine, round_num=0, stage="search",
-                event_type="search_snippet", status="success",
-                payload={
-                    "index": i,
-                    "title": s.get("title", ""),
-                    "url": s.get("url", ""),
-                    "content": s.get("content", "")[:300],
-                    "source_type": s.get("source_type", "trend"),
-                    "evidence_level": s.get("evidence_level", "trend"),
-                },
-            )
+    #不再需要保存搜索的snippet逻辑
+    
 
     def _obs_emit(self, **kwargs):
         """Convenience: emit to self.obs if set, no-op otherwise."""

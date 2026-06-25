@@ -312,7 +312,7 @@ def _load_output():
                 price_sgd=p_data.get("price_sgd", 0),
                 differentiation=p_data.get("differentiation", ""),
                 trend_source=p_data.get("trend_source", ""),
-                source_refs=p_data.get("source_refs", []),
+                source_urls=p_data.get("source_urls", p_data.get("source_refs", [])),
             )
             locked_evals.append(EvaluationResult(
                 proposal=prop,
@@ -483,27 +483,38 @@ def render_control_panel():
                 "done": False,
                 "messages": [],
                 "error": None,
-                "locked_count": 0,
+                "cuisines": {},        # NEW: per-cuisine progress
+                "total_locked": 0,
                 "target": target,
-                "phase": "",
-                "cuisine": "",
                 "stop_requested": False,
                 "run_id": st.session_state.get("_run_id", 0),
             }
             _write_progress(state)
 
             def run_pipeline():
+                _progess_lock=threading.Lock()
+                def _write_progress_threadsafe(state):
+                    with _progess_lock:
+                        _write_progress(state)
+                        
                 def log(msg):
                     state["messages"].append(msg)
-                    _write_progress(state)
+                    #原先这里是无锁调用 导致race condition（_write_progress(state))
+                    _write_progress_threadsafe(state)
                     print(msg, flush=True)
 
                 def update_state(cuisine, round_num, phase, meta):
-                    state["phase"] = phase
-                    state["cuisine"] = cuisine
-                    state["locked_count"] = meta.get("locked_count", 0)
-                    state["target"] = meta.get("remaining", 0) + meta.get("locked_count", 0)
-                    _write_progress(state)
+                    if "cuisines" not in state:
+                        state["cuisines"]={}
+                    state["cuisines"][cuisine]={
+                        "phase":phase,
+                        "locked_count":meta.get("locked_count", 0),
+                        "remaining":meta.get("remaining",0)
+                    }
+                    state["total_locked"] = sum(c.get("locked_count", 0) 
+                                                for c in state["cuisines"].values()
+                    )
+                    _write_progress_threadsafe(state)
 
                 try:
                     from utils.observability import ObservabilityLogger
@@ -648,21 +659,44 @@ def render_progress():
     if progress.get("stop_requested"):
         st.warning("⏹️ 已请求停止 — 等待当前 LLM 调用完成后将自动终止")
 
-    locked = progress.get("locked_count", 0)
     target_val = progress.get("target", 10)
-    phase = progress.get("phase", "")
-    cuisine = progress.get("cuisine", "")
+    total_locked = progress.get("total_locked", 0)
 
-    phase_label = {
-        "searching": f"🔍 正在搜索 {cuisine} 菜系趋势...",
-        "summarizing": f"📝 正在整理 {cuisine} 搜索结果...",
-        "generating": f"🤖 正在生成 {cuisine} 菜品提案...",
-        "evaluating": f"📊 正在评估 {cuisine} 菜品提案...",
-    }.get(phase, f"⏳ {phase}...")
+    # Per-cuisine progress cards
+    cuisines_state = progress.get("cuisines", {})
+    if cuisines_state:
+        # Overall progress
+        if target_val > 0:
+            overall_pct = min(total_locked / (target_val * len(cuisines_state)), 1.0)
+            st.progress(overall_pct, text=f"总进度: 已锁定 {total_locked} / 目标 {target_val}×{len(cuisines_state)}菜系")
 
-    st.info(f"{phase_label}")
-    if target_val > 0:
-        st.progress(min(locked / target_val, 1.0), text=f"已锁定 {min(locked, target_val)}/{target_val}")
+        # Per-cuisine cards side by side
+        cols = st.columns(min(len(cuisines_state), 3))
+        for i, (c_name, c_state) in enumerate(cuisines_state.items()):
+            col = cols[i % len(cols)]
+            with col:
+                phase = c_state.get("phase", "")
+                locked_count = c_state.get("locked_count", 0)
+                remaining = c_state.get("remaining", 0)
+
+                phase_emoji = {
+                    "generating": "🤖",
+                    "evaluating": "📊",
+                    "judging": "⚖️",
+                }.get(phase, "⏳")
+
+                st.markdown(f"**{phase_emoji} {c_name}** — `{phase}`")
+                if target_val > 0:
+                    st.progress(
+                        min(locked_count / target_val, 1.0),
+                        text=f"锁定 {locked_count}/{target_val}",
+                    )
+                else:
+                    st.caption(f"锁定 {locked_count}")
+    else:
+        # Fallback: no per-cuisine data yet (early startup)
+        st.info("⏳ 正在初始化...")
+
     for msg in progress.get("messages", []):
         st.write(msg)
 
