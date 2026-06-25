@@ -51,3 +51,17 @@ data/logs/
 
 # Tool-generated
 .specstory/
+
+# Debug scratch scripts (temporary, not source)
+debug_evaluator.py
+tests/debug_*.py
+
+# Backup copies
+*copy.py
+orchestrator copy.py
+
+# Feedback data (runtime, not source)
+data/feedback/
+
+# Ad-hoc test scripts
+tests/test_tavily_client.py
