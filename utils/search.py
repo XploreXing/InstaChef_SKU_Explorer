@@ -29,6 +29,7 @@ _DISH_SIGNAL_WORDS = [
 class FoodTrendSearcher:
     def __init__(self, config: dict):
         self.cfg = config["search"]
+        self._llm_cfg = config.get("llm")  # ponytail: None in unit tests → regex fallback
         self._client = None
 
     def _get_client(self):
@@ -200,12 +201,101 @@ class FoodTrendSearcher:
             r["evidence_level"] = "menu" if source_type == "menu" else "trend"
         return results
 
+    # Dish/category words that leak through the regex fallback as false "restaurant" names
+    _DISH_BLACKLIST = {
+        # Korean
+        "bibimbap", "tteokbokki", "bulgogi", "jjigae", "samgyetang", "kimchi",
+        "galbi", "japchae", "pajeon", "samgyeopsal", "doenjang", "tteok",
+        # Japanese
+        "ramen", "sushi", "sashimi", "udon", "tempura", "tonkotsu", "donburi",
+        # Chinese
+        "dim sum", "xiao long bao", "wonton", "char siew", "hor fun",
+        # Thai
+        "pad thai", "tom yum", "green curry", "som tum",
+        # Mexican
+        "tacos", "burritos", "quesadilla", "nachos", "fajita", "enchilada",
+        # Singaporean/Malay
+        "laksa", "nasi lemak", "satay", "rendang", "char kway teow",
+        "carrot cake", "chicken rice",
+    }
+
     def _extract_restaurant_names(self, results: list[dict], cuisine: str) -> list[str]:
-        """Extract candidate restaurant names from Hop 1 results."""
+        """Extract candidate restaurant names from Hop 1 results.
+        Primary: LLM NER (accurate on truncated listicle snippets, handles
+        transliterated/all-caps names the regex misses). Fallback: regex."""
+        if self._llm_cfg:
+            names = self._llm_extract_restaurant_names(results, cuisine)
+            if names:
+                return names[:5]
+        return self._regex_extract_restaurant_names(results, cuisine)
+
+    def _llm_extract_restaurant_names(self, results: list[dict], cuisine: str) -> list[str]:
+        """LLM-based restaurant name extraction. Returns [] on any failure."""
+        import json as _json
+        import os as _os
+        from openai import OpenAI
+
+        # ponytail: cap tokens — top 15 results, 250 chars each
+        snippets = []
+        for r in results[:15]:
+            t = (r.get("title", "") or "").strip()
+            c = (r.get("content", "") or "").strip()[:250]
+            if not t and not c:
+                continue
+            snippets.append(f"T: {t}\nC: {c}")
+        if not snippets:
+            return []
+
+        system = (
+            f"Extract actual restaurant/eatery BRAND names from web search snippets about {cuisine} "
+            f"food in Singapore. Return ONLY specific dining establishments (restaurants, stalls, "
+            f"chains, eateries). EXCLUDE: dish names (bibimbap, tteokbokki, bulgogi, tacos), cuisine "
+            f"categories, generic words, listicle titles ('Best/Top N ...'), social media handles, "
+            f"district/building names. INCLUDE multi-word or all-caps transliterated names "
+            f"(e.g. 'Wang Dae Bak', 'GAHE', 'Go K BBQ'). "
+            f'Output JSON: {{"restaurants": ["name", ...]}}. Max 15. Empty list if none.'
+        )
+        try:
+            client = OpenAI(
+                base_url=self._llm_cfg.get("base_url", "https://api.siliconflow.cn/v1"),
+                api_key=self._llm_cfg.get("api_key")
+                or _os.getenv(self._llm_cfg.get("api_key_env", "")),
+            )
+            resp = client.chat.completions.create(
+                model=self._llm_cfg.get("generator_model", "deepseek-ai/DeepSeek-V3"),
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": "Snippets:\n" + "\n--\n".join(snippets)},
+                ],
+                temperature=0.0,
+                max_tokens=400,
+                response_format={"type": "json_object"},
+            )
+            data = _json.loads(resp.choices[0].message.content)
+            names = [str(n).strip() for n in data.get("restaurants", []) if n and str(n).strip()]
+            deduped: list[str] = []
+            for name in names:
+                if not any(
+                    name.lower() in e.lower() or e.lower() in name.lower() for e in deduped
+                ):
+                    deduped.append(name)
+            return deduped
+        except Exception as e:
+            print(
+                f"  [search] LLM restaurant extraction failed, falling back to regex: {e}",
+                flush=True,
+            )
+            return []
+
+    def _regex_extract_restaurant_names(self, results: list[dict], cuisine: str) -> list[str]:
+        """Regex fallback for restaurant name extraction."""
         candidates: dict[str, int] = {}
         noise_words = {"best", "top", "review", "menu", "food", "restaurant",
-                       "singapore", "delivery", "price", "rating", "available",
-                       "near", "check", "found", "new", "must", "try", "where",
+                       "restaurants", "singapore", "delivery", "price", "rating",
+                       "available", "near", "check", "found", "new", "must", "try",
+                       "where", "home", "feature", "guide", "places", "eateries",
+                       "cuisine", "dining",
+                       "chinese", "japanese", "korean", "thai", "mexican", "malay",
                        cuisine.lower()}
 
         for r in results:
@@ -233,6 +323,8 @@ class FoodTrendSearcher:
         result = []
         for name, score in ranked:
             if score >= 2 and len(name) >= 4:
+                if name.lower() in self._DISH_BLACKLIST:
+                    continue
                 if not any(name.lower() in e.lower() or e.lower() in name.lower()
                            for e in result):
                     result.append(name)
