@@ -6,7 +6,6 @@ def test_build_user_message_first_round():
     msg = build_generator_user_message(
         cuisine="Mexican",
         count=7,
-        feedback="",
         locked_names=[],
         round_num=1,
     )
@@ -20,11 +19,11 @@ def test_build_user_message_with_feedback():
     msg = build_generator_user_message(
         cuisine="Japanese",
         count=5,
-        feedback="Avoid teriyaki. Focus on curry and omurice.",
         locked_names=["Chicken Teriyaki Don", "Salmon Teriyaki Don"],
         round_num=2,
     )
-    assert "Avoid teriyaki" in msg
+    # Feedback text lives in system prompt now — not in user message
+    assert "Avoid teriyaki" not in msg
     assert "Chicken Teriyaki Don" in msg
     assert "round 2" in msg
     assert "Generate 5" in msg

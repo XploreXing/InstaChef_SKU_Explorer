@@ -23,19 +23,12 @@ def _load_system_prompt() -> str:
 def build_generator_user_message(
     cuisine: str,
     count: int,
-    #search_summary: str,
-    feedback: str,
     locked_names: list[str],
     round_num: int,
 ) -> str:
-    #parts = [search_summary, ""]
-    parts=[] #不要search_summary了，原因是什么待查
-    #parts用来构建generator的user message？
+    parts = []
 
-    if feedback:
-        parts.append("## IMPROVEMENT FEEDBACK FROM PREVIOUS ROUND")
-        parts.append(feedback)
-        parts.append("")
+    if round_num > 1:
         parts.append("## CURRENT STATUS")
         parts.append(f"- {len(locked_names)} proposals already accepted for {cuisine}")
         parts.append(f"- This is round {round_num} of 3")
@@ -90,12 +83,19 @@ class GeneratorAgent:
         user_message = build_generator_user_message(
             cuisine=cuisine,
             count=count,
-            #search_summary=search_summary,
-            feedback=feedback,
             locked_names=locked_names,
             round_num=round_num,
         )
-        messages=[{"role":"system","content":self.system_prompt},
+        system_content = self.system_prompt
+        if feedback:
+            system_content += (
+                "\n\n## EXPERT FEEDBACK CONSTRAINTS (from human review)\n"
+                "The following feedback comes from human experts who reviewed "
+                "and REJECTED previous proposals. Treat these as hard "
+                "constraints — do NOT repeat these mistakes:\n"
+                + feedback
+            )
+        messages=[{"role":"system","content":system_content},
                   {"role":"user","content":user_message}]
         handlers=build_handlers(ctx) #传入了以后，这些handlers没有调用，但是都有了上下文
         try:
