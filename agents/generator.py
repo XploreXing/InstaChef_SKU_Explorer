@@ -24,7 +24,8 @@ def build_generator_user_message(
     cuisine: str,
     count: int,
     locked_names: list[str],
-    round_num: int,
+    feedback: str = "",
+    round_num: int = 1,
 ) -> str:
     parts = []
 
@@ -33,6 +34,8 @@ def build_generator_user_message(
         parts.append(f"- {len(locked_names)} proposals already accepted for {cuisine}")
         parts.append(f"- This is round {round_num} of 3")
         parts.append("")
+        if feedback:
+            parts.append(f"The feedback from evaluator last round is: {feedback}")
         parts.append("Do NOT repeat these accepted proposals:")
         parts.append(json.dumps(locked_names, indent=2, ensure_ascii=False))
     else:
@@ -60,6 +63,7 @@ class GeneratorAgent:
         count: int,
         #search_summary: str,
         feedback: str = "",
+        HITL_feedback:str="",
         existing_skus=None,
         locked_names: list[str] | None = None,
         round_num: int = 1,
@@ -84,16 +88,17 @@ class GeneratorAgent:
             cuisine=cuisine,
             count=count,
             locked_names=locked_names,
+            feedback=feedback,
             round_num=round_num,
         )
         system_content = self.system_prompt
-        if feedback:
+        if HITL_feedback:
             system_content += (
                 "\n\n## EXPERT FEEDBACK CONSTRAINTS (from human review)\n"
                 "The following feedback comes from human experts who reviewed "
                 "and REJECTED previous proposals. Treat these as hard "
                 "constraints — do NOT repeat these mistakes:\n"
-                + feedback
+                + HITL_feedback
             )
         messages=[{"role":"system","content":system_content},
                   {"role":"user","content":user_message}]

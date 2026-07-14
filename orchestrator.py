@@ -130,6 +130,7 @@ class Orchestrator:
                 cuisine=cuisine,
                 count=remaining + 5,
                 feedback=feedback,
+                HITL_feedback=feedback_summary,
                 locked_names=locked_names,
                 round_num=round_num,
                 existing_skus=cuisine_skus,
@@ -139,7 +140,7 @@ class Orchestrator:
                 stage="generate",
                 elapsed_ms=(time.time() - t_gen) * 1000,
                 model_name=self.config["llm"].get("generator_model", "n/a"),
-                input_size_chars=len(feedback),
+                input_size_chars=len(feedback)+len(feedback_summary),
                 output_size_chars=sum(len(str(p)) for p in proposal_dicts) if proposal_dicts else 0,
             )
             self._obs_emit(
@@ -151,7 +152,8 @@ class Orchestrator:
                 output_size_chars=trace_generate.output_size_chars,
                 payload={
                     "proposals_count": len(proposal_dicts) if proposal_dicts else 0,
-                    "feedback_injected": bool(feedback_summary),
+                    "hitl_feedback_injected": bool(feedback_summary),
+                    "dynamic_feedback_injected": bool(feedback),
                 },
             )
 
