@@ -43,6 +43,7 @@ st.set_page_config(
 # the main thread work 100% of the time.
 _PROGRESS_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline_progress.json"
 _OUTPUT_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline_output.json"
+_LOCK_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline.lock"
 
 
 def _read_progress() -> dict | None:
@@ -372,6 +373,23 @@ def _load_all_rejections(log_dir: Path) -> list[dict]:
 
 
 @st.cache_resource
+def _get_pipeline_lock():
+    """进程级 PipelineLock 单例。
+
+    用 flock 把"后台搜索是否在跑"的判定外包给内核：进程退出（含
+    SIGKILL / 断电 / Ctrl+C 杀掉 daemon 线程的宿主进程）时内核自动
+    释放锁，不依赖 finally 善后代码——根治"僵尸进度"（按钮卡在
+    "搜索中"但实际没在跑）。
+
+    缓存为 @st.cache_resource 单例：实例字段 ``_fd`` 跨 Streamlit rerun
+    保持，acquire 的幂等判断才成立。rerun 若 new 新实例，``_fd`` 每次归
+    None，重复 acquire 会开多个 fd 漏放锁。
+    """
+    from utils.pipeline_lock import PipelineLock
+    return PipelineLock(_LOCK_FILE)
+
+
+@st.cache_resource
 def _get_circuit_breaker(cooldown_seconds: float = 60.0):
     """进程级 CircuitBreaker 单例。
 
@@ -443,7 +461,9 @@ def render_control_panel():
             )
 
         progress = _read_progress()
-        running = progress is not None and not progress.get("done", False)
+        # 按钮死活由 flock 判定（内核记账），不再读 progress 的 done 字段——
+        # 进程被强杀时 finally 跑不到，done 会卡在 false，靠它判定会误报"搜索中"。
+        running = _get_pipeline_lock().is_held()
 
         col_start, col_stop = st.columns([3, 1])
 
@@ -472,6 +492,12 @@ def render_control_panel():
             st.rerun()
 
         if start_clicked:
+            # 抢进程级锁：抢不到说明已有搜索在跑（多 tab / 残留进程），不启动。
+            lock = _get_pipeline_lock()
+            if not lock.acquire():
+                st.toast("⚠️ 已有搜索正在运行，请等待完成或点击停止")
+                st.rerun()
+
             st.session_state.output = None
             st.session_state.adopted = set()
             st.session_state.rejected = set()
@@ -609,11 +635,15 @@ def render_control_panel():
                     print(f"❌ Pipeline error: {e}", flush=True)
                 finally:
                     state["done"] = True
-                    _write_progress(state)
+                    _write_progress(state) #
+                    # 释放进程锁。正常结束走这里；进程被强杀时内核自动放锁，
+                    # 不依赖这行——这正是 flock 方案对治"僵尸进度"的核心。
+                    lock.release()
 
             thread = threading.Thread(target=run_pipeline, daemon=True)
             thread.start()
             st.rerun()
+
 
         st.divider()
 
@@ -630,8 +660,14 @@ def render_control_panel():
 def render_progress():
     progress = _read_progress()
 
-    # Ignore stale progress from a previous run
-    if progress is not None:
+    # 僵尸进度自愈：progress 还没 done，但持锁进程已不存在（上次被强杀
+    # /断电）→ 内核已放锁 → 判定僵尸，清掉残留，回 idle 态。
+    # run_id 差值启发式保留作 progress↔output 匹配辅助，但死活判据以 flock 为准。
+    if progress is not None and not progress.get("done", False):
+        if not _get_pipeline_lock().is_held():
+            _clear_progress()
+            progress = None
+    elif progress is not None:
         current_run_id = st.session_state.get("_run_id", 0)
         progress_run_id = progress.get("run_id", 0)
         if current_run_id and progress_run_id and abs(current_run_id - progress_run_id) > 5:
@@ -953,10 +989,16 @@ def main():
     with tab3:
         render_export()
 
-    # Auto-refresh while pipeline is running
+    # Auto-refresh while pipeline is running.
+    # 死活以 flock 为准：锁还在→真在跑→继续刷新；锁已放→僵尸或已结束→停止。
     progress = _read_progress()
     if progress is not None and not progress.get("done", True):
         if progress.get("error"):
+            _clear_progress()
+            _get_pipeline_lock().release()
+            st.rerun()
+        if not _get_pipeline_lock().is_held():
+            # 持锁进程已死（强杀/断电），清残留进度，停止刷新
             _clear_progress()
             st.rerun()
         time.sleep(1)
