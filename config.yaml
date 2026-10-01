@@ -4,6 +4,73 @@ output:
   format: "json"
 
 llm:
+  # ── Preset-based model selection (closed set, internal-tool style) ──
+  # Each preset is a self-contained (base_url + adapter + models + cost) unit.
+  # The frontend dropdown reads this list; missing-API-key presets are filtered
+  # out at render time. Adapter is explicit (no litellm-style model-string
+  # inference): "openai_compat" = identity transform (SiliconFlow / DeepSeek
+  # official / OpenAI / Gemini-OpenAI-shim / ollama / vllm); "anthropic" = needs
+  # the AnthropicConfig translation layer.
+  presets:
+    - id: deepseek-v4-flash
+      label: "DeepSeek V4 Flash (官方)"
+      base_url: "https://api.deepseek.com/v1"
+      api_key_env: "DEEPSEEK_API_KEY"
+      adapter: openai_compat
+      models: {generator: "deepseek-v4-flash", evaluator: "deepseek-v4-flash", enrichment: "deepseek-v4-flash"}
+      cost_per_1k_input_tokens: 0.0   # 按实际价目填，0 = 不计成本
+      cost_per_1k_output_tokens: 0.0
+    - id: deepseek-v4-pro
+      label: "DeepSeek V4 Pro (官方)"
+      base_url: "https://api.deepseek.com/v1"
+      api_key_env: "DEEPSEEK_API_KEY"
+      adapter: openai_compat
+      models: {generator: "deepseek-v4-pro", evaluator: "deepseek-v4-pro", enrichment: "deepseek-v4-pro"}
+      cost_per_1k_input_tokens: 0.0
+      cost_per_1k_output_tokens: 0.0
+    - id: siliconflow-deepseek-v4-flash
+      label: "DeepSeek V4 Flash (SiliconFlow)"
+      base_url: "https://api.siliconflow.cn/v1"
+      api_key_env: "SILICONFLOW_API_KEY"
+      adapter: openai_compat
+      models: {generator: "deepseek-ai/DeepSeek-V4-Flash", evaluator: "deepseek-ai/DeepSeek-V4-Flash", enrichment: "deepseek-ai/DeepSeek-V4-Flash"}
+      cost_per_1k_input_tokens: 0.0
+      cost_per_1k_output_tokens: 0.0
+    - id: gemini-flash-lite
+      label: "Gemini 3.1 Flash-Lite"
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+      api_key_env: "GEMINI_API_KEY"
+      adapter: openai_compat          # Google's official OpenAI-compat shim; no GeminiConfig needed
+      models: {generator: "gemini-3.1-flash-lite", evaluator: "gemini-3.1-flash-lite", enrichment: "gemini-3.1-flash-lite"}
+      cost_per_1k_input_tokens: 0.0
+      cost_per_1k_output_tokens: 0.0
+    - id: siliconflow-glm-5
+      label: "GLM-5 (SiliconFlow)"
+      base_url: "https://api.siliconflow.cn/v1"
+      api_key_env: "SILICONFLOW_API_KEY"
+      adapter: openai_compat
+      models: {generator: "Pro/zai-org/GLM-5", evaluator: "Pro/zai-org/GLM-5", enrichment: "Pro/zai-org/GLM-5"}
+      cost_per_1k_input_tokens: 0.0
+      cost_per_1k_output_tokens: 0.0
+
+    # ── 未启用，按需取消注释（SiliconFlow 托管的其他模型，复制改 model 名即可）──
+    # - id: siliconflow-deepseek-v32
+    #   label: "DeepSeek V3.2 (SiliconFlow)"
+    #   base_url: "https://api.siliconflow.cn/v1"
+    #   api_key_env: "SILICONFLOW_API_KEY"
+    #   adapter: openai_compat
+    #   models: {generator: "deepseek-ai/DeepSeek-V3.2", evaluator: "deepseek-ai/DeepSeek-V3.2", enrichment: "deepseek-ai/DeepSeek-V3.2"}
+    # - id: siliconflow-qwen3-32b
+    #   label: "Qwen3-32B (SiliconFlow)"
+    #   base_url: "https://api.siliconflow.cn/v1"
+    #   api_key_env: "SILICONFLOW_API_KEY"
+    #   adapter: openai_compat
+    #   models: {generator: "Qwen/Qwen3-32B", evaluator: "Qwen/Qwen3-32B", enrichment: "Qwen/Qwen3-8B"}  # enrichment 用小模型省钱
+
+  default_preset: deepseek-v4-flash   # 未在前端选择时用此 preset + 走 fallback 链
+  cooldown_seconds: 60                # 失败 preset 冷却时长
+
+  # ── 扁平字段保留，仅向后兼容无 presets 键的老配置 ──
   base_url: "https://api.siliconflow.cn/v1"
   api_key_env: "LLM_API_KEY"
   enrichment_model: "deepseek-ai/DeepSeek-V3"
