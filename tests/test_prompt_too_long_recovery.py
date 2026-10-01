@@ -8,12 +8,14 @@
 import json
 import pytest
 from openai import BadRequestError, AuthenticationError, RateLimitError
+from openai.types.chat import ChatCompletionMessage
 from unittest.mock import MagicMock
 
 from agents.generator import (
     GeneratorAgent,
     is_prompt_too_long_error,
 )
+from utils.llm_providers.base import Choice, ModelResponse
 
 
 def _make_agent():
@@ -144,26 +146,31 @@ def _fake_create_side_effect(call_seq):
 
 
 def _assistant_msg(content=None, tool_calls=None):
-    m = MagicMock()
-    m.content = content
-    m.tool_calls = tool_calls
-    return m
+    """生产里 router 返回的 message 是 SDK 的 ChatCompletionMessage（pydantic
+    对象，没有 .get）。这里用真实类型而不是 MagicMock——MagicMock 什么属性都
+    有，会把"历史里混着对象和 dict"这类问题盖住。"""
+    return ChatCompletionMessage.model_validate(
+        {"role": "assistant", "content": content, "tool_calls": tool_calls}
+    )
 
 
-def _tool_call(cid, name="discover_cuisine"):
-    tc = MagicMock()
-    tc.id = cid
-    tc.function.name = name
-    tc.function.arguments = "{}"
-    return tc
+def _tool_call(cid, name="discover_cuisine", arguments="{}"):
+    return {"id": cid, "type": "function",
+            "function": {"name": name, "arguments": arguments}}
 
 
 def _response(msg, finish_reason="stop"):
-    r = MagicMock()
-    r.choices = [MagicMock()]
-    r.choices[0].message = msg
-    r.choices[0].finish_reason = finish_reason
-    return r
+    """与 LLMRouter.chat() 的真实返回同形：ModelResponse 包着 SDK message。"""
+    return ModelResponse(
+        choices=[Choice(message=msg, finish_reason=finish_reason)],
+        model="test-model",
+        preset_id="test",
+    )
+
+
+def _tool_messages(messages):
+    """历史里 assistant 消息是 SDK 对象，只有 dict 才可能是 tool 消息。"""
+    return [m for m in messages if isinstance(m, dict) and m.get("role") == "tool"]
 
 
 def test_run_tool_loop_compacts_then_retries_on_prompt_too_long(monkeypatch):
@@ -195,8 +202,39 @@ def test_run_tool_loop_compacts_then_retries_on_prompt_too_long(monkeypatch):
     assert calls["n"] == 2  # 第一次失败、压缩后第二次成功
     assert proposals and proposals[0]["name"] == "Dish X"
     # 压缩后那条 tool 消息的 content 应已被改成存根
-    tool_msgs = [m for m in messages if m.get("role") == "tool"]
+    tool_msgs = _tool_messages(messages)
     assert any("omitted to save context" in (m.get("content") or "") for m in tool_msgs)
+
+
+def test_run_tool_loop_compacts_history_holding_sdk_messages(monkeypatch):
+    """真实时序：模型先调工具 -> tool 结果把上下文撑大 -> 下一次调用才 too-long。
+    此时历史里必然已有 SDK 返回的 assistant 消息对象，压缩不能因为它没有 .get
+    而崩掉。"""
+    agent = _make_agent()
+
+    seq = [
+        _response(_assistant_msg(tool_calls=[_tool_call("call_1", "search_web")]),
+                  finish_reason="tool_calls"),
+        _bad_request("This model's maximum context length is 8192 tokens."),
+        _response(_assistant_msg(
+            content=json.dumps({"proposals": [{"name": "Dish X", "source_refs": []}]}))),
+    ]
+    _create, calls = _fake_create_side_effect(seq)
+    monkeypatch.setattr(agent.client, "chat", _create)
+
+    from models import ToolContext
+    ctx = ToolContext(cuisine="Test", existing_skus=[], config=agent.config)
+    handlers = {"search_web": lambda args: "[REF_01] Trend A\n" + "x" * 8000}
+    messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}]
+
+    proposals = agent._run_tool_loop(messages, handlers, ctx)
+
+    assert calls["n"] == 3  # 工具调用、too-long、压缩后重试成功
+    assert proposals and proposals[0]["name"] == "Dish X"
+    (tool_msg,) = _tool_messages(messages)
+    assert tool_msg["tool_call_id"] == "call_1"  # 配对没断
+    assert "omitted to save context" in tool_msg["content"]
+    assert "REF_01" in tool_msg["content"]
 
 
 def test_run_tool_loop_raises_on_non_toolong_error(monkeypatch):

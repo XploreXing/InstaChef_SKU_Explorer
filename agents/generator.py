@@ -151,9 +151,11 @@ class GeneratorAgent:
         import re
         # 阈值取当前所有 tool message content 的中位数，只压明显偏大的；若不足
         # 两条则保证至少压最大的那条。
-        sizes = [len(m.get("content", "")) for m in messages if m.get("role") == "tool"]
+        # history 里的 assistant 消息是 SDK 返回的对象（没有 .get）；tool 消息
+        # 都是 _run_tool_loop 自己 append 的 dict，所以只在 dict 里找。
+        tool_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "tool"]
+        sizes = [len(m.get("content", "")) for m in tool_msgs]
         threshold = sorted(sizes)[len(sizes) // 2] if sizes else 0
-        tool_msgs = [m for m in messages if m.get("role") == "tool"]
         tool_msgs.sort(key=lambda m: len(m.get("content", "")), reverse=True)
         n_compact = max(1, sum(1 for s in sizes if s > threshold and s > 0))
         for m in tool_msgs[:n_compact]:
