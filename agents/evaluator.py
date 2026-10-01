@@ -156,9 +156,10 @@ class EvaluatorAgent:
             if msg.content:
                 evaluations, summary, suggestions = self._parse_response(msg.content)
                 if evaluations:
-                    print(f"[evaluator] loop {loop_i}: content parsed successful" 
-                          f"[summary]:{summary[:500]}"
-                          f"[suggestion]: {suggestions[:500]}"
+                    # summary is an object per the output schema; str() before slicing
+                    print(f"[evaluator] loop {loop_i}: content parsed successful"
+                          f"[summary]:{str(summary)[:500]}"
+                          f"[suggestion]: {str(suggestions)[:500]}"
                         f"content preview: {msg.content[:200]!r}", flush=True)
                     return evaluations, summary, suggestions
                 print(f"[evaluator] loop {loop_i}: content returned but parse failed, "
