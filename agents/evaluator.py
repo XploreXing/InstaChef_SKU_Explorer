@@ -1,5 +1,6 @@
 import json
 import os
+import traceback
 from utils.llm_router import LLMRouter
 from models import DishProposal, EvaluationResult
 from utils.evaluator_tools import (search_web_for_eval, EVALUATOR_TOOL_SCHEMAS)
@@ -105,7 +106,16 @@ class EvaluatorAgent:
             }
 
             # Stage 1: normal tool-use loop
-            result = self._run_tool_loop(messages, handlers)
+            try:
+                result = self._run_tool_loop(messages, handlers)
+            except Exception as e:
+                # The model may have answered before the failure, and re-reading
+                # history costs no API call. Stage 3 is skipped: it re-sends the
+                # same history, so it would only repeat an API failure.
+                print(f"[evaluator] r{round_num}: stage 1 raised "
+                      f"{type(e).__name__}: {e}; salvaging from history", flush=True)
+                traceback.print_exc()
+                return self._recover_from_history(messages) or ([], {}, "")
             if result:
                 return result
 
@@ -120,9 +130,8 @@ class EvaluatorAgent:
             result = self._force_final_output(messages)
             return result or ([], {}, "")
         except Exception as e:
-            import traceback as _tb
             print(f"Evaluator API call failed: {e}")
-            _tb.print_exc()
+            traceback.print_exc()
             return [], {}, ""
 
     def _run_tool_loop(self, messages, handlers) -> tuple[list[dict], dict, str] | None:

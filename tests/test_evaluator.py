@@ -1,6 +1,8 @@
 import json
 
+import httpx
 import pytest
+from openai import APITimeoutError
 from openai.types.chat import ChatCompletionMessage
 
 from agents.evaluator import EvaluatorAgent, build_evaluator_user_message
@@ -197,3 +199,30 @@ def test_evaluate_returns_answer_with_non_string_suggestions(suggestions):
 
     assert [e["name"] for e in evaluations] == ["Test Dish"]
     assert returned == suggestions
+
+
+def test_evaluate_salvages_answer_when_stage1_raises_after_answering(monkeypatch):
+    """If stage 1 raises once the model's answer is already in the history,
+    stage 2 re-reads it at no extra API cost."""
+    agent = _make_agent([])
+
+    def _crash_after_answer(messages, handlers):
+        messages.append(_router_response(content=_answer()).choices[0].message)
+        raise RuntimeError("bug between parse and return")
+
+    monkeypatch.setattr(agent, "_run_tool_loop", _crash_after_answer)
+
+    evaluations, _, _ = _evaluate(agent)
+
+    assert [e["name"] for e in evaluations] == ["Test Dish"]
+    assert agent.client.calls == 0
+
+
+def test_evaluate_skips_stage3_when_stage1_api_call_fails():
+    """Stage 3 re-sends the same history, so after a failed API call it would
+    only repeat the failure, and its timeout, twice more."""
+    timeout = APITimeoutError(request=httpx.Request("POST", "https://llm.invalid"))
+    agent = _make_agent([timeout, _router_response(content=_answer())])
+
+    assert _evaluate(agent) == ([], {}, "")
+    assert agent.client.calls == 1
