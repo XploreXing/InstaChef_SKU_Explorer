@@ -177,6 +177,7 @@ class Orchestrator:
 
             # --- HITL Blacklist: deterministic name match (uses pre-loaded blacklist) ---
             hitl_vetoed: list[EvaluationResult] = []
+            hitl_passed_proposals: list[dict] = []
 
             for p in proposal_dicts:
                 name = p.get("name", "")
@@ -215,6 +216,8 @@ class Orchestrator:
                             "immediate": True,
                         },
                     )
+                else:
+                    hitl_passed_proposals.append(p)
             #不再需要在Orchestrator的逻辑中进行lineage validation逻辑
            
 
@@ -222,7 +225,7 @@ class Orchestrator:
             guard_vetoed: list[EvaluationResult] = []
             guard_passed_proposals: list[dict] = []
 
-            for p in proposal_dicts:
+            for p in hitl_passed_proposals:
                 passed, veto_reason = HardConstraintGuard.precheck(p)
                 if not passed:
                     guard_vetoed.append(EvaluationResult(
