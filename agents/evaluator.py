@@ -1,6 +1,6 @@
 import json
 import os
-from openai import OpenAI
+from utils.llm_router import LLMRouter
 from models import DishProposal, EvaluationResult
 from utils.evaluator_tools import (search_web_for_eval, EVALUATOR_TOOL_SCHEMAS)
 from utils.json_parser import parse_llm_json
@@ -64,12 +64,13 @@ def build_evaluator_user_message(
 
 
 class EvaluatorAgent:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, breaker=None):
         self.cfg = config["llm"]
-        api_key = self.cfg.get("api_key") or os.getenv(self.cfg.get("api_key_env", ""))
-        self.client = OpenAI(
-            base_url=self.cfg.get("base_url", "https://api.siliconflow.cn/v1"),
-            api_key=api_key,
+        self.client = LLMRouter(
+            self.cfg,
+            role="evaluator",
+            selected_preset_id=self.cfg.get("selected_preset_id"),
+            breaker=breaker,
         )
         self.system_prompt = _load_system_prompt()
 
@@ -119,14 +120,15 @@ class EvaluatorAgent:
             result = self._force_final_output(messages)
             return result or ([], {}, "")
         except Exception as e:
+            import traceback as _tb
             print(f"Evaluator API call failed: {e}")
+            _tb.print_exc()
             return [], {}, ""
 
     def _run_tool_loop(self, messages, handlers) -> tuple[list[dict], dict, str] | None:
         """Stage 1: standard tool-using loop. Returns parsed tuple or None."""
         for loop_i in range(5):
-            response = self.client.chat.completions.create(
-                model=self.cfg["evaluator_model"],
+            response = self.client.chat(
                 messages=messages,
                 temperature=self.cfg["evaluator_temperature"],
                 max_tokens=8192,
@@ -195,8 +197,7 @@ class EvaluatorAgent:
 
         for attempt in range(2):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.cfg["evaluator_model"],
+                response = self.client.chat(
                     messages=forced_messages,
                     temperature=0,
                     max_tokens=8192,

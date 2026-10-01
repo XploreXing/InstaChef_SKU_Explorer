@@ -14,7 +14,7 @@ load_dotenv()
 
 _client_lock=threading.Lock()
 _client_instance=None # 这一步是什么意思
-_semaphore=threading.Semaphore(3) #control 只有3次的并发concurrency
+_semaphore=threading.Semaphore(3) #control 只有3次的并发concurrency #用于控制一个API的调用速度，防止ratelimit，账号封禁
 
 def get_tavily_client():
     """Thread-safe singleton Tavily client.

@@ -29,18 +29,33 @@ class Orchestrator:
         self.existing_skus: list[ProcessedCommodity] = []
         self.evaluator: EvaluatorAgent | None = None
         self._eval_lock: threading.Lock | None = None
+        self.breaker = None  # CircuitBreaker, injected by app.py (or self-created)
+        self._summary_router = None  # cached LLMRouter for feedback/summary calls
         
         self.obs: "ObservabilityLogger | None" = None  # set by app.py or tests
 
     def load_skus(self):
-        self.sku_loader = SKUDataLoader(self.config)
+        self.sku_loader = SKUDataLoader(self.config, breaker=self.breaker)
         self.existing_skus = self.sku_loader.load()
         self.state = OrchestratorState.INIT #如果改为外部并发，即多个进程同时启动_process_cuisine是，因为这个state当前状态对并发完全没意义，只有内部的locked,round_num这些内部变量可以充当状态
 
     def _init_agents(self):
         if self.evaluator is None:
-            self.evaluator = EvaluatorAgent(self.config)
+            self.evaluator = EvaluatorAgent(self.config, breaker=self.breaker)
         self._eval_lock = threading.Lock()
+
+    def _get_summary_router(self):
+        """Lazy-init the LLMRouter used for feedback synthesis + executive
+        summary. Shares the same breaker as the agents for coherent cooldown."""
+        if self._summary_router is None:
+            from utils.llm_router import LLMRouter
+            self._summary_router = LLMRouter(
+                self.config["llm"],
+                role="generator",  # reuse generator model for summary tasks
+                selected_preset_id=self.config["llm"].get("selected_preset_id"),
+                breaker=self.breaker,
+            )
+        return self._summary_router
        
 
     def run(self, cuisines: list[str] | None = None) -> FinalOutput:
@@ -80,7 +95,7 @@ class Orchestrator:
     def _process_cuisine(self, cuisine: str) -> CuisineResult:
         cfg = self.config["orchestrator"]
         #Each thread gets its own Generator (Thread-safe ToolContext)
-        generator=GeneratorAgent(self.config)
+        generator=GeneratorAgent(self.config, breaker=self.breaker)
         evaluator=self.evaluator
 
         locked: list[EvaluationResult] = []
@@ -499,7 +514,6 @@ class Orchestrator:
         produce actionable feedback for the Generator's next round.
         Returns (feedback_text, recommended_threshold)."""
         import json as _json
-        import os as _os
 
         # Build a compact round summary for the LLM
         passed = [e for e in evaluation_results if e.passed]
@@ -571,14 +585,9 @@ Output JSON:
 Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no change)."""
 
         try:
-            from openai import OpenAI
             cfg = self.config["llm"]
-            client = OpenAI(
-                base_url=cfg.get("base_url", "https://api.siliconflow.cn/v1"),
-                api_key=cfg.get("api_key") or _os.getenv(cfg.get("api_key_env", "")),
-            )
-            response = client.chat.completions.create(
-                model=cfg.get("generator_model", cfg.get("evaluator_model", "deepseek-ai/DeepSeek-V3")),
+            client = self._get_summary_router()
+            response = client.chat(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
@@ -618,7 +627,6 @@ Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no cha
     def _generate_executive_summary(self, output: FinalOutput) -> ExecutiveSummary:
         """LLM-generated business-readable summary for stakeholders."""
         import json as _json
-        import os as _os
 
         # Build compact aggregate stats
         total_proposals = 0
@@ -669,14 +677,9 @@ Output JSON:
   "top_recommendations": [...]}}"""
 
         try:
-            from openai import OpenAI
             cfg = self.config["llm"]
-            client = OpenAI(
-                base_url=cfg.get("base_url", "https://api.siliconflow.cn/v1"),
-                api_key=cfg.get("api_key") or _os.getenv(cfg.get("api_key_env", "")),
-            )
-            response = client.chat.completions.create(
-                model=cfg.get("generator_model", "deepseek-ai/DeepSeek-V3"),
+            client = self._get_summary_router()
+            response = client.chat(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},

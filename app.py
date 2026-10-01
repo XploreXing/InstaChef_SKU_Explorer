@@ -371,6 +371,19 @@ def _load_all_rejections(log_dir: Path) -> list[dict]:
     return all_rejections
 
 
+@st.cache_resource
+def _get_circuit_breaker(cooldown_seconds: float = 60.0):
+    """进程级 CircuitBreaker 单例。
+
+    缓存为 @st.cache_resource 单例：熔断冷却状态（_cooldowns dict）跨
+    Streamlit rerun 保持。若 rerun new 新实例，_cooldowns 每次归空，刚熔断
+    的 preset 会被立刻重试，等于没熔断——参见 utils/llm_circuit_breaker.py
+    顶部 STREAMLIT PERSISTENCE 注释。
+    """
+    from utils.llm_circuit_breaker import CircuitBreaker
+    return CircuitBreaker(cooldown_seconds=cooldown_seconds)
+
+
 def init_session():
     defaults = {
         "output": None,
@@ -400,36 +413,33 @@ def render_control_panel():
             st.slider("最大轮数", 1, 5, 3, key="max_rounds")
 
         with st.expander("🔑 模型配置"):
-            st.text_input(
-                "API Base URL",
-                value="https://api.siliconflow.cn/v1",
-                key="api_base_url",
-                help="模型供应商的 API 地址",
-            )
-            st.text_input(
-                "API Key",
-                type="password",
-                value=os.getenv("LLM_API_KEY", ""),
-                key="api_key",
-                help="留空则使用 .env 中的 LLM_API_KEY",
-            )
-            st.text_input(
-                "Enrichment Model",
-                value="deepseek-ai/DeepSeek-V3",
-                key="enrichment_model_name",
-                help="用于给商品打菜系标签",
-            )
-            st.text_input(
-                "Generator Model",
-                value="deepseek-ai/DeepSeek-V3",
-                key="generator_model_name",
-                help="用于生成菜品提案",
-            )
-            st.text_input(
-                "Evaluator Model",
-                value="deepseek-ai/DeepSeek-V3",
-                key="evaluator_model_name",
-                help="用于评估菜品打分",
+            # Preset dropdown: closed set of company-approved models.
+            # Missing-API-key presets are filtered out at render time (mode A:
+            # keys come from .env, not user input). Internal-tool form:
+            # IT configures keys, users just pick a model.
+            import yaml as _yaml
+            with open("config.yaml") as _f:
+                _cfg = _yaml.safe_load(_f)
+            _all_presets = _cfg["llm"].get("presets", [])
+            _available = [p for p in _all_presets if os.getenv(p["api_key_env"])]
+            if not _available:
+                st.error(
+                    "没有任何 preset 配置了 API Key。请在 .env 中设置 "
+                    "DEEPSEEK_API_KEY / SILICONFLOW_API_KEY / GEMINI_API_KEY 至少一个。"
+                )
+                st.stop()
+            _preset_ids = [p["id"] for p in _available]
+            _default_idx = 0
+            _default_preset = _cfg["llm"].get("default_preset", _preset_ids[0])
+            if _default_preset in _preset_ids:
+                _default_idx = _preset_ids.index(_default_preset)
+            st.selectbox(
+                "模型预设",
+                options=_preset_ids,
+                index=_default_idx,
+                format_func=lambda i: next(p["label"] for p in _available if p["id"] == i),
+                key="selected_preset_id",
+                help="API Key 全部来自 .env 环境变量；未配置 key 的预设不会出现在列表中",
             )
 
         progress = _read_progress()
@@ -473,11 +483,7 @@ def render_control_panel():
             target = st.session_state.get("target", 10)
             threshold = st.session_state.get("threshold", 80)
             max_rounds = st.session_state.get("max_rounds", 3)
-            api_base_url = st.session_state.get("api_base_url", "")
-            api_key = st.session_state.get("api_key", "")
-            enrichment_model = st.session_state.get("enrichment_model_name", "")
-            generator_model = st.session_state.get("generator_model_name", "")
-            evaluator_model = st.session_state.get("evaluator_model_name", "")
+            selected_preset_id = st.session_state.get("selected_preset_id", "")
 
             state = {
                 "done": False,
@@ -531,17 +537,13 @@ def render_control_panel():
                     orch.config["orchestrator"]["pass_threshold"] = threshold
                     orch.config["orchestrator"]["max_rounds_per_cuisine"] = max_rounds
 
-                    # Override LLM config with user-provided values (empty = keep default)
-                    if api_base_url:
-                        orch.config["llm"]["base_url"] = api_base_url
-                    if api_key:
-                        orch.config["llm"]["api_key"] = api_key
-                    if enrichment_model:
-                        orch.config["llm"]["enrichment_model"] = enrichment_model
-                    if generator_model:
-                        orch.config["llm"]["generator_model"] = generator_model
-                    if evaluator_model:
-                        orch.config["llm"]["evaluator_model"] = evaluator_model
+                    # Inject selected preset + shared CircuitBreaker into orchestrator.
+                    # The breaker is a process-wide singleton via @st.cache_resource
+                    # so cooldown state persists across Streamlit reruns; the
+                    # orchestrator/agents/router are rebuilt each rerun (to reflect
+                    # the latest preset choice) but share this one breaker.
+                    orch.config["llm"]["selected_preset_id"] = selected_preset_id
+                    orch.breaker = _get_circuit_breaker(orch.config["llm"].get("cooldown_seconds", 60))
 
                     log("🔬 正在用 AI 给 137 条商品做菜系分类...")
                     orch.load_skus()

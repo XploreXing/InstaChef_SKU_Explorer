@@ -1,10 +1,12 @@
 import json
 import os
-from openai import OpenAI
+from openai import BadRequestError
 from utils.generator_tools import (
     GENERATOR_TOOL_SCHEMAS, build_handlers
 )
 from utils.json_parser import parse_llm_json
+from utils.llm_providers.base import is_prompt_too_long_error  # noqa: F401 (re-exported for test compat)
+from utils.llm_router import LLMRouter
 from models import ToolContext
 GENERATOR_SYSTEM_PROMPT = None
 
@@ -47,13 +49,14 @@ def build_generator_user_message(
 
 
 class GeneratorAgent:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, breaker=None):
         self.config=config
         self.cfg = config["llm"]
-        api_key = self.cfg.get("api_key") or os.getenv(self.cfg.get("api_key_env", ""))
-        self.client = OpenAI(
-            base_url=self.cfg.get("base_url", "https://api.siliconflow.cn/v1"),
-            api_key=api_key,
+        self.client = LLMRouter(
+            self.cfg,
+            role="generator",
+            selected_preset_id=self.cfg.get("selected_preset_id"),
+            breaker=breaker,
         )
         self.system_prompt = _load_system_prompt()
         self.tool_context=ToolContext() #每个实例一个，线程安全？
@@ -75,6 +78,7 @@ class GeneratorAgent:
             cuisine=cuisine,
             existing_skus=existing_skus or [], #提问：这个existing_skus在哪一步读取，是放在内存中吗？
             config=self.config, #为什么这里要传入完整的配置文件？我猜是为了读取设定好的query templates
+            breaker=self.client.breaker,
         )
 
         # Preserve source_urls from previous rounds (discover_cuisine should
@@ -137,6 +141,28 @@ class GeneratorAgent:
                 for tag in ref_tags if tag in ctx.source_urls
             ]
         return proposals
+    def _compact_tool_messages(self, messages):
+        """结构化截断：只改 tool message 的 content，保留 message 本身和
+        tool_call_id（否则与上方 assistant tool_call 配对断裂 → API 400）。
+
+        只压"偏大"的 tool 结果（小的 follow-up 查询结果保留不动），正文换成存根，
+        REF 标签保留在存根里让模型仍知道有哪些源；URL 全程在 ctx 中，溯源不断。
+        """
+        import re
+        # 阈值取当前所有 tool message content 的中位数，只压明显偏大的；若不足
+        # 两条则保证至少压最大的那条。
+        sizes = [len(m.get("content", "")) for m in messages if m.get("role") == "tool"]
+        threshold = sorted(sizes)[len(sizes) // 2] if sizes else 0
+        tool_msgs = [m for m in messages if m.get("role") == "tool"]
+        tool_msgs.sort(key=lambda m: len(m.get("content", "")), reverse=True)
+        n_compact = max(1, sum(1 for s in sizes if s > threshold and s > 0))
+        for m in tool_msgs[:n_compact]:
+            refs = re.findall(r"REF_\d{2}", m.get("content", ""))
+            ref_str = ", ".join(sorted(set(refs))) or "n/a"
+            m["content"] = (
+                f"[omitted to save context — source URLs retained in ctx; "
+                f"refs: {ref_str}]"
+            )
 
     def _run_tool_loop(self, messages, handlers, ctx) -> list[dict] | None:
         """Stage 1: standard tool-using agent loop.
@@ -144,17 +170,30 @@ class GeneratorAgent:
         Returns parsed proposals on success, None if the loop exhausted without
         a parseable JSON answer (so the caller can fall back).
         """
+        has_compacted = False
         for loop_i in range(10):
-            response = self.client.chat.completions.create(
-                model=self.cfg["generator_model"],
-                messages=messages,
-                temperature=self.cfg["generator_temperature"],
-                max_tokens=4096,
-                tools=GENERATOR_TOOL_SCHEMAS,
-            )
-            msg = response.choices[0].message
-            finish_reason = response.choices[0].finish_reason
-            messages.append(msg)
+            try:
+                response = self.client.chat(
+                    messages=messages,
+                    temperature=self.cfg["generator_temperature"],
+                    max_tokens=4096,
+                    tools=GENERATOR_TOOL_SCHEMAS,
+                )
+                msg = response.choices[0].message
+                finish_reason = response.choices[0].finish_reason
+                messages.append(msg)
+            except Exception as e:
+                # Path 2: prompt too long -> reactive compact (once), then retry.
+                # 第二次仍 too-long，或非 too-long 异常（401/529 等）一律 raise，
+                # 交给顶层 generate() 的 except 分流——绝不 fall-through 到下面
+                # 使用未定义的 msg（否则真实错误会被 NameError 掩盖）。
+                if is_prompt_too_long_error(e) and not has_compacted:
+                    self._compact_tool_messages(messages)
+                    has_compacted = True
+                    print(f"[generator] prompt too long, compacted oldest tool "
+                          f"messages, retrying", flush=True)
+                    continue
+                raise
 
             # Case 1: Model wants to call a tool
             if msg.tool_calls:
@@ -186,6 +225,7 @@ class GeneratorAgent:
                 # stop/content_filter: model said nothing — give Stage 2/3 a chance
                 break
             # other reasons (length, etc.) — try another loop iteration
+
         return None
 
     def _recover_from_history(self, messages, ctx) -> list[dict] | None:
@@ -224,8 +264,7 @@ class GeneratorAgent:
 
         for attempt in range(2):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.cfg["generator_model"],
+                response = self.client.chat(
                     messages=forced_messages,
                     temperature=0,            # deterministic final formatting
                     max_tokens=4096,

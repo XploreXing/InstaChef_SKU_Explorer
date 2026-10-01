@@ -50,6 +50,8 @@ class StageTrace:
     input_size_chars: int
     output_size_chars: int
     error: str = ""
+    preset_id: str = ""        # which preset was used (LLM provider tracing)
+    cost_usd: float = 0.0       # cost of this LLM call (from usage × price)
 
 
 @dataclass
@@ -141,6 +143,10 @@ class ObservabilityEvent:
     output_size_chars: int = 0
     error: str = ""
     payload: dict = field(default_factory=dict)
+    preset_id: str = ""          # which preset was used (LLM provider tracing)
+    prompt_tokens: int = 0       # token usage from provider (or estimated)
+    completion_tokens: int = 0
+    cost_usd: float = 0.0        # cost of this LLM call (usage × price)
 
 
 @dataclass
@@ -169,3 +175,4 @@ class ToolContext:
     config: dict = field(default_factory=dict)
     source_urls: dict[str, str] = field(default_factory=dict)
     source_contents: dict[str, str] = field(default_factory=dict)
+    breaker: object = None  # CircuitBreaker, passed through to FoodTrendSearcher for shared cooldown

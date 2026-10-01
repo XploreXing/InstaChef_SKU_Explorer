@@ -99,7 +99,7 @@ def discover_cuisine(cuisine: str, ctx: ToolContext) -> str:
     from utils.tavily_client import tavily_search
 
     # Build a config-like dict so FoodTrendSearcher can read search settings
-    searcher = FoodTrendSearcher(ctx.config)
+    searcher = FoodTrendSearcher(ctx.config, breaker=ctx.breaker)
 
     # --- Hop 1: broad cuisine discovery ---
     queries = searcher.build_queries(cuisine)

@@ -1,13 +1,14 @@
 import csv
 import json
 import os
-from openai import OpenAI
+from utils.llm_router import LLMRouter
 from models import RawCommodity, ProcessedCommodity
 
 
 class SKUDataLoader:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, breaker=None):
         self.config = config
+        self.breaker = breaker
         self.source = config["data"]["sku_source"]
         self.csv_path = config["data"].get("sku_csv_path", "")
         self.cache_path = config["data"].get(
@@ -18,11 +19,11 @@ class SKUDataLoader:
 
     def _get_llm_client(self):
         if self._llm_client is None:
-            cfg = self.config["llm"]
-            api_key = cfg.get("api_key") or os.getenv(cfg.get("api_key_env", ""))
-            self._llm_client = OpenAI(
-                base_url=cfg.get("base_url", "https://api.siliconflow.cn/v1"),
-                api_key=api_key,
+            self._llm_client = LLMRouter(
+                self.config["llm"],
+                role="enrichment",
+                selected_preset_id=self.config["llm"].get("selected_preset_id"),
+                breaker=self.breaker,
             )
         return self._llm_client
 
@@ -169,9 +170,7 @@ Return ONLY valid JSON:
 
         try:
             client = self._get_llm_client()
-            cfg = self.config["llm"]
-            response = client.chat.completions.create(
-                model=cfg.get("enrichment_model", cfg.get("evaluator_model", cfg.get("generator_model"))),
+            response = client.chat(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},

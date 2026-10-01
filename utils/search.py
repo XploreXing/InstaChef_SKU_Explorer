@@ -27,10 +27,12 @@ _DISH_SIGNAL_WORDS = [
 
 
 class FoodTrendSearcher:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, breaker=None):
         self.cfg = config["search"]
         self._llm_cfg = config.get("llm")  # ponytail: None in unit tests → regex fallback
+        self._breaker = breaker
         self._client = None
+        self._llm_router = None
 
     def _get_client(self):
         if self._client is None:
@@ -229,11 +231,20 @@ class FoodTrendSearcher:
                 return names[:5]
         return self._regex_extract_restaurant_names(results, cuisine)
 
+    def _get_llm_router(self):
+        if self._llm_router is None and self._llm_cfg:
+            from utils.llm_router import LLMRouter
+            self._llm_router = LLMRouter(
+                self._llm_cfg,
+                role="generator",  # reuse generator model for NER
+                selected_preset_id=self._llm_cfg.get("selected_preset_id"),
+                breaker=self._breaker,
+            )
+        return self._llm_router
+
     def _llm_extract_restaurant_names(self, results: list[dict], cuisine: str) -> list[str]:
         """LLM-based restaurant name extraction. Returns [] on any failure."""
         import json as _json
-        import os as _os
-        from openai import OpenAI
 
         # ponytail: cap tokens — top 15 results, 250 chars each
         snippets = []
@@ -256,13 +267,10 @@ class FoodTrendSearcher:
             f'Output JSON: {{"restaurants": ["name", ...]}}. Max 15. Empty list if none.'
         )
         try:
-            client = OpenAI(
-                base_url=self._llm_cfg.get("base_url", "https://api.siliconflow.cn/v1"),
-                api_key=self._llm_cfg.get("api_key")
-                or _os.getenv(self._llm_cfg.get("api_key_env", "")),
-            )
-            resp = client.chat.completions.create(
-                model=self._llm_cfg.get("generator_model", "deepseek-ai/DeepSeek-V3"),
+            client = self._get_llm_router()
+            if client is None:
+                return []
+            resp = client.chat(
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": "Snippets:\n" + "\n--\n".join(snippets)},
