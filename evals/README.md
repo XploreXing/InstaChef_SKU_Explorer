@@ -31,6 +31,8 @@
 python evals/run_evaluator.py                   # 每道菜评 3 次，按 Evaluator 当前配置
 python evals/run_evaluator.py --thinking both   # 对比思考模式开和关
 python evals/run_evaluator.py --runs 5 --preset siliconflow-deepseek-v4-flash
+python evals/run_evaluator.py --thinking off --temperature 1.0   # 看 temperature 对波动的影响
+python evals/run_evaluator.py --threshold 65    # 模拟通过线被 orchestrator 下调之后的轮次
 ```
 
 原始结果写在 `evals/results/`（不进 git）。Evaluator 的联网搜索第一次真搜，之后回放 `evals/results/search_cache.json`，所以多次运行比较的是模型而不是搜索引擎；想刷新就删掉这个文件。
@@ -53,3 +55,8 @@ python evals/run_evaluator.py --runs 5 --preset siliconflow-deepseek-v4-flash
 - 标签只有拒绝的。一个什么都不放行的 Evaluator 在第一行能拿满分，所以这一行不能单独用来判断哪种配置更好。
 - 两道因"口味不适合新加坡市场"被人工拒绝的墨西哥菜，两种配置下 3 次都放行了。
 - 新马菜系那一批的总分被模型按 0–10 报出（3.25 而不是 32.5），两种配置都有。
+
+同一天的两个补充实验（都是思考关）：
+
+- temperature 从 0.1 调到 1.0：分数波动中位数从 0 升到 4.0 分。思考模式下 temperature 不生效，这是思考开时不稳定的主要来源之一。
+- 通过线从 80 降到 65：分数不变，但人工拒绝的 10 道里放行的从 2 道变成 8 道。

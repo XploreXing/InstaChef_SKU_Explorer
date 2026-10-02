@@ -274,6 +274,11 @@ def main() -> int:
     parser.add_argument("--thinking", choices=["default", "on", "off", "both"], default="default",
                         help="default = whatever the evaluator asks for; both = compare on and off")
     parser.add_argument("--preset", help="LLM preset id from config.yaml (default: config default)")
+    parser.add_argument("--temperature", type=float,
+                        help="override llm.evaluator_temperature (ignored by models while they think)")
+    parser.add_argument("--threshold", type=float,
+                        help="override the pass threshold, e.g. to replay a later round "
+                             "after the orchestrator lowered it")
     parser.add_argument("--workers", type=int, default=4, help="cuisine batches run in parallel")
     args = parser.parse_args()
 
@@ -281,7 +286,11 @@ def main() -> int:
     config = yaml.safe_load((REPO / "config.yaml").read_text(encoding="utf-8"))
     if args.preset:
         config["llm"]["selected_preset_id"] = args.preset
+    if args.temperature is not None:
+        config["llm"]["evaluator_temperature"] = args.temperature
     context, cases = load_cases()
+    if args.threshold is not None:
+        context["pass_threshold"] = args.threshold
     _install_search_cache()
 
     modes = {"default": [("as configured", None)], "on": [("thinking on", True)],
@@ -289,7 +298,9 @@ def main() -> int:
              "both": [("thinking on", True), ("thinking off", False)]}[args.thinking]
     labelled = sum(1 for c in cases if c.get("label"))
     print(f"{len(cases)} dishes ({labelled} with a human label), {args.runs} runs each, "
-          f"preset {config['llm'].get('selected_preset_id') or config['llm'].get('default_preset')}")
+          f"preset {config['llm'].get('selected_preset_id') or config['llm'].get('default_preset')}, "
+          f"temperature {config['llm']['evaluator_temperature']}, "
+          f"pass threshold {context['pass_threshold']}")
 
     report = {"runs": args.runs, "context": context, "modes": {}}
     for name, thinking in modes:
