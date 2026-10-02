@@ -9,27 +9,17 @@
 #   reason          for a rejected dish, why the person rejected it
 #   source          human   = a rejection recorded in the app (data/feedback)
 #                   history = a dish the pipeline proposed earlier, taken from
-#                             data/logs (two per cuisine: the highest score and
-#                             the one closest to the pass threshold)
-#   previous_score  what the evaluator gave the dish back then. Context only,
-#                   never used as an expected value.
+#                             data/logs (two per cuisine)
+#   previous_score  what the evaluator gave the dish back then, under the old
+#                   scoring that added a per-cuisine blue-ocean term. Context
+#                   only, never an expected value, and not comparable with
+#                   today's dish scores.
 #
 # To add a label, a domain expert fills in `label` (and `reason` for a
-# rejection). Accepted dishes are missing so far: until some are labelled,
-# agreement only says how often the evaluator catches what people reject.
-#
-# `context` is frozen on purpose. The blue-ocean score depends on how many
-# SKUs a cuisine already has, so the counts must not move between runs.
+# rejection). Accepted dishes are missing so far. Until some are labelled the
+# ranking cannot be checked against people: the script can only report how
+# often a rejected dish would still have been kept.
 
-context:
-  pass_threshold: 80
-  sku_counts:
-    Chinese: 14
-    Japanese: 14
-    Korean: 12
-    Thai: 14
-    Singaporean/Malay: 36
-    Mexican: 0
 cases:
 - id: human-reject-yellow-curry-potato-chickpea-rice-bowl
   label: reject

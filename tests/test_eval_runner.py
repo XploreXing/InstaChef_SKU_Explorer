@@ -4,21 +4,25 @@ No API calls: verdicts are written by hand."""
 import importlib.util
 from pathlib import Path
 
-import pytest
-
 _SCRIPT = Path(__file__).resolve().parent.parent / "evals" / "run_evaluator.py"
 _spec = importlib.util.spec_from_file_location("run_evaluator", _SCRIPT)
 run_evaluator = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run_evaluator)
 
 
-def _v(score, passed, vetoed=False, recomputed=None):
-    return {"passed": passed, "vetoed": vetoed, "score": score, "raw": {},
-            "recomputed": score if recomputed is None else recomputed, "veto_reason": None}
+def _case(id_, cuisine="Japanese", label=None):
+    return {"id": id_, "label": label, "dish": {"name": id_, "cuisine": cuisine}}
 
 
-def _summary(cases, per_case, threshold=80):
-    return run_evaluator.summarize(cases, {"per_case": per_case}, threshold)
+def _v(score):
+    """A scored dish, or a vetoed one when `score` is None."""
+    return {"scored": score is not None, "missing": False, "score": score or 0,
+            "trend": 0, "hawker": 0, "veto_reason": None if score is not None else "veto"}
+
+
+def _summary(cases, per_case):
+    runs = len(next(iter(per_case.values())))
+    return run_evaluator.summarize(cases, {"per_case": per_case}, runs)
 
 
 def test_importing_the_script_leaves_the_evaluator_search_alone():
@@ -27,61 +31,64 @@ def test_importing_the_script_leaves_the_evaluator_search_alone():
     assert evaluator_module.search_web_for_eval is run_evaluator._real_search
 
 
-def test_verdict_recomputes_the_total_from_the_dimension_scores():
-    verdict = run_evaluator._verdict({
-        "name": "Dish", "vetoed": False, "passed": False, "total_score": 3.25,
-        "scores": {
-            "cuisine_blue_ocean": {"raw": 0},
-            "trend_heat": {"raw": 5},
-            "hawker_substitutability": {"raw": 6},
-        },
+def test_top_half_is_what_a_quota_of_half_the_batch_would_keep():
+    cases = [_case("a"), _case("b"), _case("c"), _case("d"), _case("e")]
+    per_case = {"a": [_v(50)], "b": [_v(90)], "c": [_v(None)], "d": [_v(70)], "e": [_v(60)]}
+
+    # five dishes -> a quota of three; the vetoed dish can never be kept
+    assert run_evaluator.top_half(cases, per_case, run=0) == {"b", "d", "e"}
+
+
+def test_stability_reports_score_spread_and_dishes_that_move_in_or_out():
+    cases = [_case("steady"), _case("wobbles"), _case("rival"), _case("sometimes-vetoed")]
+    summary = _summary(cases, {
+        "steady": [_v(90), _v(90), _v(90)],
+        "wobbles": [_v(80), _v(60), _v(82)],            # kept in runs 1 and 3 only
+        "rival": [_v(70), _v(70), _v(70)],              # kept in run 2 only
+        "sometimes-vetoed": [_v(40), _v(None), _v(44)],
     })
 
-    assert verdict["score"] == 3.25
-    assert verdict["recomputed"] == 32.5  # 0*4 + 5*3.5 + 6*2.5
+    assert sorted(summary["rank_flips"]) == ["rival", "wobbles"]
+    assert summary["veto_flips"] == ["sometimes-vetoed"]
+    assert summary["median_spread"] == 2.0              # spreads are 0, 22, 0 and 4
+    assert summary["max_spread"] == (22, "wobbles")
 
 
-def test_agreement_counts_only_labelled_dishes():
+def test_agreement_compares_accepted_and_rejected_dishes_of_the_same_cuisine():
     cases = [
-        {"id": "rejected-and-caught", "label": "reject"},
-        {"id": "rejected-but-passed", "label": "reject"},
-        {"id": "accepted-and-passed", "label": "accept"},
-        {"id": "nobody-judged-this", "label": None},
+        _case("good", label="accept"), _case("bad", label="reject"),
+        _case("other-cuisine", cuisine="Thai", label="reject"),
+        _case("unlabelled"),
     ]
     summary = _summary(cases, {
-        "rejected-and-caught": [_v(70, False), _v(72, False)],
-        "rejected-but-passed": [_v(85, True), _v(75, False)],
-        "accepted-and-passed": [_v(90, True), _v(88, True)],
-        "nobody-judged-this": [_v(85, True), _v(85, True)],
+        "good": [_v(80), _v(60)],
+        "bad": [_v(70), _v(75)],                        # outscores the accepted dish in run 2
+        "other-cuisine": [_v(99), _v(99)],              # another cuisine: never compared with "good"
+        "unlabelled": [_v(50), _v(50)],
     })
 
-    assert summary["agree"]["reject"] == [3, 4]          # 3 of 4 verdicts were "not passed"
-    assert summary["always_agree"]["reject"] == [1, 2]   # only one dish was caught every time
-    assert summary["agree"]["accept"] == [2, 2]
-    assert summary["always_agree"]["accept"] == [1, 1]
+    assert summary["pairs"] == [1, 2]
 
 
-def test_stability_reports_spread_flips_and_missing_verdicts():
-    cases = [{"id": "steady"}, {"id": "flips"}, {"id": "dropped"}]
+def test_rejected_dishes_that_would_still_be_kept_are_counted():
+    """With no accepted dish to compare against, this is all that can be said."""
+    cases = [_case("rejected-top", label="reject"), _case("rejected-bottom", label="reject"),
+             _case("filler-1"), _case("filler-2")]
     summary = _summary(cases, {
-        "steady": [_v(71, False), _v(71, False), _v(71, False)],
-        "flips": [_v(82, True), _v(77, False), _v(84, True)],
-        "dropped": [_v(60, False), None, _v(64, False)],
+        "rejected-top": [_v(95), _v(95)],
+        "rejected-bottom": [_v(10), _v(10)],
+        "filler-1": [_v(60), _v(60)],
+        "filler-2": [_v(50), _v(50)],
     })
 
-    assert summary["flips"] == ["flips"]
-    assert summary["missing"] == ["dropped"]
-    assert summary["median_spread"] == 4          # spreads are 0, 7 and 4
-    assert summary["max_spread"] == (7, "flips")
+    assert summary["pairs"] == [0, 0]
+    assert summary["rejected_kept"] == [2, 4]           # 2 rejected dishes x 2 runs
+    assert summary["rejected_always_kept"] == 1
 
 
-def test_summary_flags_a_total_that_contradicts_its_own_parts():
-    cases = [{"id": "bad-sum"}, {"id": "bad-flag"}, {"id": "vetoed"}]
-    summary = _summary(cases, {
-        "bad-sum": [_v(3.25, False, recomputed=32.5)],
-        "bad-flag": [_v(72, True)],                        # passed below the threshold
-        "vetoed": [_v(0, False, vetoed=True, recomputed=0)],
-    })
+def test_missing_scores_are_counted():
+    cases = [_case("a"), _case("b")]
+    not_scored = {**_v(None), "missing": True}
+    summary = _summary(cases, {"a": [_v(60), not_scored], "b": [_v(70), _v(70)]})
 
-    assert summary["miscalculated"] == [("bad-sum", 3.25, 32.5)]
-    assert summary["contradictions"] == 1
+    assert summary["missing"] == 1
