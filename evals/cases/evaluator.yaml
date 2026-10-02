@@ -1,0 +1,301 @@
+# Evaluator cases: dishes for the LLM evaluator, used by evals/run_evaluator.py.
+#
+# Unlike the guard and duplicate cases these cost API calls and do not give
+# the same answer twice, so they are not part of the normal test run.
+#
+#   label           reject | accept, decided by a person. Empty means nobody
+#                   has judged the dish yet: it still counts for stability,
+#                   but not for agreement.
+#   reason          for a rejected dish, why the person rejected it
+#   source          human   = a rejection recorded in the app (data/feedback)
+#                   history = a dish the pipeline proposed earlier, taken from
+#                             data/logs (two per cuisine: the highest score and
+#                             the one closest to the pass threshold)
+#   previous_score  what the evaluator gave the dish back then. Context only,
+#                   never used as an expected value.
+#
+# To add a label, a domain expert fills in `label` (and `reason` for a
+# rejection). Accepted dishes are missing so far: until some are labelled,
+# agreement only says how often the evaluator catches what people reject.
+#
+# `context` is frozen on purpose. The blue-ocean score depends on how many
+# SKUs a cuisine already has, so the counts must not move between runs.
+
+context:
+  pass_threshold: 80
+  sku_counts:
+    Chinese: 14
+    Japanese: 14
+    Korean: 12
+    Thai: 14
+    Singaporean/Malay: 36
+    Mexican: 0
+cases:
+- id: human-reject-yellow-curry-potato-chickpea-rice-bowl
+  label: reject
+  reason_code: cost_high
+  reason: 原料成本过高
+  source: human
+  previous_score: 72.5
+  dish:
+    name: Yellow Curry Potato & Chickpea Rice Bowl
+    name_cn: 黃咖喱土豆鷹嘴豆飯
+    cuisine: Thai
+    description: Vegetarian-friendly yellow curry with potatoes, chickpeas and carrots in coconut milk sauce, sprinkled
+      with crispy shallots. Features aromatic turmeric and cumin flavors.
+    description_cn: 素食友好的黃咖喱含土豆、鷹嘴豆和胡蘿蔔，配椰奶醬和酥炸紅蔥頭，帶薑黃和小茴香香氣。
+- id: human-reject-nagoya-hitsumabushi
+  label: reject
+  reason_code: too_complex
+  reason: 做法太复杂/不适合自动化
+  source: human
+  previous_score: 79.0
+  dish:
+    name: Nagoya Hitsumabushi
+    name_cn: 名古屋鳗鱼三吃
+    cuisine: Japanese
+    description: 'Halal-certified grilled eel slices over rice served with condiments for three ways of eating:
+      plain, with spices, or as ochazuke (tea broth). Includes side of pickles.'
+    description_cn: 清真认证烤鳗鱼片盖饭，提供三种吃法：原味、加香料或茶泡饭。附赠腌菜。
+- id: human-reject-miyazaki-wagyu-beef-bowl
+  label: reject
+  reason_code: cost_high
+  reason: 原料成本过高
+  source: human
+  previous_score: 78.5
+  dish:
+    name: Miyazaki Wagyu Beef Bowl
+    name_cn: 宫崎和牛丼
+    cuisine: Japanese
+    description: Thinly sliced Miyazaki-style wagyu beef (halal-certified) seared with sansho pepper, served over
+      rice with caramelized onions and shimeji mushrooms. Finished with wasabi-infused soy dressing.
+    description_cn: 薄切宫崎和牛（清真认证）用山椒烤制，搭配焦糖洋葱和蟹味菇，淋上山葵酱油酱汁。
+- id: human-reject-shirasu-whitebait-don
+  label: reject
+  reason_code: cost_high
+  reason: 原料成本过高
+  source: human
+  previous_score: 75.5
+  dish:
+    name: Shirasu Whitebait Don
+    name_cn: 白鱼干亲子丼
+    cuisine: Japanese
+    description: Premium dried baby sardines (shirasu) simmered in dashi over rice, topped with onsen egg and shredded
+      nori. Served with side of grated daikon to balance the umami.
+    description_cn: 高级白鱼干用出汁炖煮后铺在米饭上，搭配温泉蛋和撕碎的海苔。附赠萝卜泥平衡鲜味。
+- id: human-reject-kyoto-purple-sweet-potato-don
+  label: reject
+  reason_code: too_complex
+  reason: 做法太复杂/不适合自动化
+  source: human
+  previous_score: 71.0
+  dish:
+    name: Kyoto Purple Sweet Potato Don
+    name_cn: 京都紫薯丼
+    cuisine: Japanese
+    description: Steamed Japanese purple sweet potato mash layered over rice, topped with grilled chicken thigh
+      glazed in yuzu miso, toasted black sesame seeds, and pickled radish. Inspired by traditional Kyoto vegetable
+      cuisine with modern plating.
+    description_cn: 蒸制的日本紫薯泥铺在米饭上，搭配柚子味增烤鸡腿肉，撒上烤黑芝麻和腌萝卜。灵感来自京都传统蔬菜料理与现代摆盘风格。
+- id: human-reject-atka-mackerel-teriyaki-bowl
+  label: reject
+  reason_code: cost_high
+  reason: 原料成本过高
+  source: human
+  previous_score: 74.5
+  dish:
+    name: Atka Mackerel Teriyaki Bowl
+    name_cn: 鳕鱼照烧碗
+    cuisine: Japanese
+    description: Grilled Atka mackerel fillet with homemade teriyaki sauce, served with rice, blanched spinach,
+      and pickled ginger. A premium yet affordable seafood option.
+    description_cn: 烤鳕鱼片配自制照烧酱，搭配米饭、焯菠菜和腌姜。优质且价格实惠的海鲜选择。
+- id: human-reject-hokkaido-scallop-butter-don
+  label: reject
+  reason_code: cost_high
+  reason: 原料成本过高
+  source: human
+  previous_score: 69.5
+  dish:
+    name: Hokkaido Scallop Butter Don
+    name_cn: 北海道扇贝黄油丼
+    cuisine: Japanese
+    description: Steamed rice topped with Hokkaido scallops sautéed in garlic butter sauce, served with caramelized
+      onions and a sprinkle of nori flakes. Halal-certified chicken broth used in the butter sauce.
+    description_cn: 白饭上铺满北海道扇贝，用蒜香黄油酱炒制，搭配焦糖洋葱和海苔碎。黄油酱中使用清真认证鸡汤。
+- id: human-reject-mexican-lentil-bowl
+  label: reject
+  reason_code: bad_taste
+  reason: 口味不适合新加坡市场
+  source: human
+  previous_score: 81.0
+  dish:
+    name: Mexican Lentil Bowl
+    name_cn: 墨西哥扁豆碗
+    cuisine: Mexican
+    description: Spiced lentils cooked with tomatoes and epazote herb, served with Mexican red rice, roasted sweet
+      potatoes, queso fresco, and toasted pepitas.
+    description_cn: 番茄和墨西哥蒿调味的扁豆，配墨西哥红米饭、烤红薯、干酪和烤南瓜籽。
+- id: human-reject-poblano-veggie-bowl
+  label: reject
+  reason_code: bad_taste
+  reason: 口味不适合新加坡市场
+  source: human
+  previous_score: 87.0
+  dish:
+    name: Poblano Veggie Bowl
+    name_cn: 墨西哥青椒素食碗
+    cuisine: Mexican
+    description: Roasted poblano peppers and portobello mushrooms with Mexican-spiced quinoa, black beans, charred
+      corn, roasted tomato salsa, and lime crema.
+    description_cn: 烤墨西哥青椒和大褐菇配墨西哥风味藜麦、黑豆、烤玉米、番茄莎莎酱和青柠奶油酱。
+- id: human-reject-thai-muslim-beef-rendang-rice-bowl
+  label: reject
+  reason_code: duplicate
+  reason: 已有类似SKU/重复
+  source: human
+  previous_score: 83.5
+  dish:
+    name: Thai Muslim Beef Rendang Rice Bowl
+    name_cn: 泰式穆斯林牛肉仁当饭
+    cuisine: Thai
+    description: Slow-braised halal beef in rich Thai-Muslim style rendang curry with lemongrass and kaffir lime
+      leaves. Served with steamed rice and acar pickles.
+    description_cn: 慢炖清真牛肉配泰式穆斯林仁当咖喱，含香茅和咖喱叶。配白饭和阿查泡菜。
+- id: unlabeled-xinjiang-cumin-lamb-noodles
+  label: null
+  source: history
+  previous_score: 93.0
+  dish:
+    name: Xinjiang Cumin Lamb Noodles
+    name_cn: 新疆孜然羊肉面
+    cuisine: Chinese
+    description: Hand-pulled noodles with cumin-spiced lamb, bell peppers, and onions. Northwestern Chinese flavors
+      with no frying required.
+    description_cn: 手工拉面配孜然风味羊肉、甜椒和洋葱。西北风味，无需油炸。
+- id: unlabeled-fujian-peanut-butter-noodles
+  label: null
+  source: history
+  previous_score: 79.5
+  dish:
+    name: Fujian Peanut Butter Noodles
+    name_cn: 福建花生酱面
+    cuisine: Chinese
+    description: Springy noodles tossed in savory peanut sauce with shredded chicken, bean sprouts, and fried shallots.
+      Inspired by Fuzhou peanut sauce preparations.
+    description_cn: 弹牙面条拌花生酱、鸡丝、豆芽和炸红葱。福州花生酱风味。
+- id: unlabeled-unagi-kabayaki-rice-bowl
+  label: null
+  source: history
+  previous_score: 86.0
+  dish:
+    name: Unagi Kabayaki Rice Bowl
+    name_cn: 蒲烧鳗鱼饭
+    cuisine: Japanese
+    description: Grilled freshwater eel basted with kabayaki sauce, served over rice with sansho pepper and toasted
+      sesame seeds. Eel's natural oils prevent drying in the warmer.
+    description_cn: 蒲烧酱烤淡水鳗鱼，配米饭、山椒粉和烤芝麻。鳗鱼天然油脂可防止保温时变干。
+- id: unlabeled-japanese-chicken-curry-rice
+  label: null
+  source: history
+  previous_score: 80.5
+  dish:
+    name: Japanese Chicken Curry Rice
+    name_cn: 日式鸡肉咖喱饭
+    cuisine: Japanese
+    description: Mild, slightly sweet Japanese-style curry with halal chicken pieces, potatoes, and carrots, served
+      over steamed rice. Japanese curry is thick and gravy-based (not a soup broth), making it stable at 60-70°C
+      holding temperatures without quality degradation.
+    description_cn: 温和微甜的日式咖喱配清真鸡肉块、土豆和胡萝卜，浇在热米饭上。日式咖喱浓稠如酱汁（非汤底），在60-70°C保温条件下品质稳定不易变差。
+- id: unlabeled-korean-peruvian-pollo-a-la-brasa-bowl
+  label: null
+  source: history
+  previous_score: 90.5
+  dish:
+    name: Korean-Peruvian Pollo a la Brasa Bowl
+    name_cn: 韩式秘鲁烤鸡饭
+    cuisine: Korean
+    description: Marinated halal chicken thighs with Korean gochujang and Peruvian aji panca sauce, served over
+      rice with kimchi slaw, pickled red onions, and roasted sweet potatoes. Finished with cilantro-lime crema.
+    description_cn: 清真鸡腿肉用韩式辣酱和秘鲁aji panca酱腌制，搭配米饭、泡菜沙拉、腌红洋葱和烤红薯，最后淋上香菜青柠奶油酱。
+- id: unlabeled-gyeongju-hwangnam-bread-bowl
+  label: null
+  source: history
+  previous_score: 79.5
+  dish:
+    name: Gyeongju Hwangnam Bread Bowl
+    name_cn: 庆州皇南饼风味饭
+    cuisine: Korean
+    description: Savory adaptation of Korea's traditional red bean pastry - sticky rice with sweet red bean paste,
+      chestnuts, and cinnamon-marinated chicken, topped with crushed walnut crumble.
+    description_cn: 韩国传统红豆饼的咸味版本：糯米饭配甜红豆沙、栗子和肉桂腌鸡肉，撒上碎核桃粒。
+- id: unlabeled-northern-thai-curry-noodle-bowl
+  label: null
+  source: history
+  previous_score: 93.0
+  dish:
+    name: Northern Thai Curry Noodle Bowl
+    name_cn: 北泰咖喱面
+    cuisine: Thai
+    description: 'Khao Soi–inspired dry-style egg noodle bowl: braised chicken thigh in a rich, coconut-based yellow
+      curry sauce (not soup) with pickled mustard greens, sliced shallots, and a squeeze of lime. The thick sauce
+      clings to the noodles rather than pooling as broth, making it warming-cabinet friendly.'
+    description_cn: 受泰北金面启发的干拌面碗：鸡腿肉以浓郁椰奶黄咖喱酱慢炖（非汤底），配腌芥菜、红葱头片和青柠汁。浓稠酱汁裹住面条而非汤水形式，适合保温柜存放。
+- id: unlabeled-thai-holy-basil-chicken-rice-bowl
+  label: null
+  source: history
+  previous_score: 80.0
+  dish:
+    name: Thai Holy Basil Chicken Rice Bowl
+    name_cn: 泰式打抛鸡饭
+    cuisine: Thai
+    description: 'Thailand''s quintessential everyday dish: wok-fried minced chicken with holy basil leaves, bird''s
+      eye chilli, garlic, and a savoury oyster-soy sauce, served over fragrant jasmine rice. Spicy, aromatic, and
+      deeply satisfying.'
+    description_cn: 泰国最经典的日常美食：鸡肉碎与九层塔、指天椒、大蒜一同爆炒，以蚝油酱油调味，配香喷喷的茉莉花饭。香辣开胃，令人满足。
+- id: unlabeled-sambal-goreng-tempeh-bowl
+  label: null
+  source: history
+  previous_score: 90.5
+  dish:
+    name: Sambal Goreng Tempeh Bowl
+    name_cn: 参巴天贝炒饭
+    cuisine: Singaporean/Malay
+    description: Stir-fried tempeh with sambal goreng sauce, green beans, and tofu served over turmeric rice with
+      crispy shallots.
+    description_cn: 参巴酱炒天贝配青豆和豆腐，姜黄饭打底，撒上脆葱头。
+- id: unlabeled-ikan-bakar-rice-bowl
+  label: null
+  source: history
+  previous_score: 79.5
+  dish:
+    name: Ikan Bakar Rice Bowl
+    name_cn: 香烤鱼椰饭
+    cuisine: Singaporean/Malay
+    description: Grilled Spanish mackerel (ikan tenggiri) fillet marinated in turmeric-spice paste, topped with
+      sambal belacan, over coconut rice with achar. The firm fish holds well at holding temperature and the sambal
+      belacan's fermented shrimp-chili heat intensifies appealingly as it rests.
+    description_cn: 鲭鱼片以姜黄香料腌制后烤制，铺上参峇峇拉煎辣酱，搭配椰饭和腌菜。肉质紧实的鱼在保温状态下保持口感，峇拉煎辣酱的发酵虾米辣味久放更浓。
+- id: unlabeled-mole-chicken-bowl
+  label: null
+  source: history
+  previous_score: 96.5
+  dish:
+    name: Mole Chicken Bowl
+    name_cn: 墨西哥摩尔酱鸡饭
+    cuisine: Mexican
+    description: Grilled chicken thigh with rich Oaxacan-style mole sauce (chocolate-chili blend), served with Mexican
+      red rice, charred zucchini, and pickled onions.
+    description_cn: 烤鸡腿配瓦哈卡式摩尔酱（巧克力辣椒混合酱），配墨西哥红米饭、烤西葫芦和腌洋葱。
+- id: unlabeled-adobo-chicken-black-bean-bowl
+  label: null
+  source: history
+  previous_score: 80.0
+  dish:
+    name: Adobo Chicken & Black Bean Bowl
+    name_cn: 墨西哥阿多波酱鸡肉黑豆碗
+    cuisine: Mexican
+    description: Chicken thigh braised in tangy adobo sauce (vinegar, garlic, oregano, chilli) over cilantro rice,
+      topped with seasoned black beans, roasted corn, and pickled jalapeños. The vinegar-based adobo sauce preserves
+      quality exceptionally well at holding temperature.
+    description_cn: 鸡腿肉以酸香阿多波酱（醋、蒜、牛至、辣椒）炖煮，铺在香菜米饭上，配调味黑豆、烤玉米和腌墨西哥辣椒。醋基阿多波酱在保温温度下能极好地保持品质。

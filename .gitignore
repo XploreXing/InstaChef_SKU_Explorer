@@ -65,3 +65,6 @@ data/feedback/
 
 # Ad-hoc test scripts
 tests/test_tavily_client.py
+
+# Eval run artefacts (raw results and agent logs)
+evals/results/
