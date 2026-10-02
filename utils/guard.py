@@ -12,9 +12,35 @@ HARAM_WORDS = [
     "酒", "alcohol",
     "猪油", "lard",
     "火腿", "ham",
-    "腊肉", "培根",
+    "腊肉", "培根", "bacon",
     "sake", "mirin", "wine", "gelatin", "味醂",
 ]
+# English haram terms match where a word starts, so "lard" still catches
+# "lardons" but not "collard". A term that also begins innocent words ("ham":
+# hamachi, hamburg steak) has to match the whole word. Only ASCII letters count
+# as word characters here, so a term embedded in Chinese text ("用sake蒸") hits.
+_HARAM_WHOLE_WORD = {"ham"}
+
+
+def _haram_pattern(word: str) -> re.Pattern:
+    if not word.isascii():
+        return re.compile(re.escape(word))
+    tail = r"s?(?![a-z])" if word in _HARAM_WHOLE_WORD else ""
+    return re.compile(r"(?<![a-z])" + re.escape(word) + tail, re.IGNORECASE)
+
+
+_HARAM_PATTERNS = [(_haram_pattern(w), w) for w in HARAM_WORDS]
+
+
+def find_haram_word(text: str) -> str:
+    """The first haram term found in `text`, or "" if there is none."""
+    for pattern, word in _HARAM_PATTERNS:
+        if pattern.search(text):
+            return word
+    return ""
+
+
+
 FRIED_WORDS= [
     "katsu", "tempura", "karaage",
     "tonkatsu", "炸鸡", "炸猪排", "炸虾",
@@ -138,8 +164,8 @@ class HardConstraintGuard:
         """Check for haram (non-halal) ingredients.
         Returns (passed: bool, veto_reason: str)."""
         combined = f"{name} {name_cn} {description} {description_cn}"
-        found, word = cls._contains_any(combined, HARAM_WORDS)
-        if found:
+        word = find_haram_word(combined)
+        if word:
             return False, f"高压线熔断：检测到清真违规词 '{word}'"
         return True, ""
     @classmethod

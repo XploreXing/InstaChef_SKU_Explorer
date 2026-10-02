@@ -216,3 +216,16 @@ def test_gelatin_triggers_veto():
         )
         assert not passed
         assert "gelatin" in reason
+
+
+def test_generator_halal_tool_agrees_with_the_guard():
+    """The generator's validate_halal tool used its own word list, which had
+    drifted from the guard's: the tool knew "bacon", the guard did not."""
+    from utils.generator_tools import validate_halal
+
+    verdict = validate_halal(["hamachi", "collard greens", "bacon bits", "猪肉末"])
+
+    assert "hamachi" not in verdict
+    assert "collard greens" not in verdict
+    assert "bacon bits — contains 'bacon'" in verdict
+    assert "猪肉末 — contains '猪肉'" in verdict

@@ -10,28 +10,21 @@ Key design:
 
 import json
 from models import ToolContext
+from utils.guard import find_haram_word
 
 
 
 # ── Tool implementations ────────────────────────────────────────────────
 
-NON_HALAL = {
-    "pork", "lard", "bacon", "ham", "alcohol",
-    "wine", "sake", "mirin", "gelatin",
-    "猪油", "腊肉", "培根", "火腿", "酒",
-}
-
-
 def validate_halal(ingredients: list[str]) -> str:
     """Check if ingredients comply with halal dietary requirements.
-    Deterministic keyword match — no LLM needed."""
+    Deterministic keyword match — no LLM needed. Uses the guard's term list,
+    so the tool and the guard cannot disagree about an ingredient."""
     issues = []
     for ing in ingredients:
-        ing_lower = ing.lower()
-        for nh in NON_HALAL:
-            if nh in ing_lower:
-                issues.append(f"❌ {ing} — contains '{nh}'")
-                break
+        word = find_haram_word(ing)
+        if word:
+            issues.append(f"❌ {ing} — contains '{word}'")
 
     if issues:
         return "NON-HALAL DETECTED:\n" + "\n".join(issues)
