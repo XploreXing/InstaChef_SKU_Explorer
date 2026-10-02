@@ -120,3 +120,16 @@ class TestBuildEvaluatorContext:
 
         assert "Dish 01" not in context
         assert "Dish 02" in context and "Dish 11" in context
+
+    def test_says_what_to_do_when_a_reason_applies(self):
+        """A hint ("be extra vigilant") left it to the evaluator whether to
+        act: it vetoed matching dishes in 2 runs out of 5. The block now
+        states the action."""
+        context = build_evaluator_context(
+            [{"cuisine": "Japanese", "reason_label": "原料成本过高", "proposal_name": "Wagyu Bowl"}],
+            "Japanese",
+        )
+
+        assert "`vetoed: true`" in context
+        assert "`veto_reason`" in context
+        assert "vigilant" not in context

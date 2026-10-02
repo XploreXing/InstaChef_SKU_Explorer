@@ -89,7 +89,8 @@ def build_feedback_summary(rejections: list[dict], cuisine: str) -> str:
 
 def build_evaluator_context(rejections: list[dict], cuisine: str) -> str:
     """Build the block appended to the Evaluator's user message: the most
-    recent rejections for the given cuisine, each with its reason."""
+    recent rejections for the given cuisine, each with its reason, and the
+    rule for acting on them."""
     cuisine_rejections = [
         r for r in rejections if r.get("cuisine") == cuisine
     ]
@@ -98,11 +99,22 @@ def build_evaluator_context(rejections: list[dict], cuisine: str) -> str:
 
     lines = [
         "\n## HITL Feedback: Previously Rejected Proposals",
-        "These dishes were rejected by human experts. Be extra vigilant for similar patterns:\n"
+        "A person rejected each of these dishes for the reason given:\n"
     ]
     for r in cuisine_rejections[-10:]:
         lines.append(
             f"- 「{r.get('proposal_name_cn', r.get('proposal_name', ''))}」"
             f"→ {r.get('reason_label', '')}"
         )
+    # A rule, not a hint: told only to "be vigilant", the evaluator acted on
+    # these in some runs and ignored them in others.
+    lines.append(
+        "\nRule: check every proposal against these reasons. If one of them "
+        "applies to the proposal in the same way (the same kind of costly "
+        "ingredient, the same kind of preparation that cannot be automated, "
+        "and so on), set `vetoed: true` and name the rejected dish and its "
+        "reason in `veto_reason`. Sharing an ingredient or a dish type with a "
+        "rejected dish is not enough: the reason itself has to apply. "
+        "Otherwise score the proposal as usual."
+    )
     return "\n".join(lines)
