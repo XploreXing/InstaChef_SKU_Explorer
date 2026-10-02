@@ -54,7 +54,7 @@ class TestExecutiveSummaryIntegration:
 
         ev = EvaluationResult(
             proposal=prop, vetoed=False, veto_reason=None,
-            cuisine_blue_ocean=8, trend_heat=7,
+            trend_heat=7,
             hawker_substitutability=8, total_score=78.5,
             passed=True, reasoning="Good dish",
         )

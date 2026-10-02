@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from orchestrator import Orchestrator
 from models import AdoptionFeedback, RejectionFeedback
+from utils.data_loader import SKUDataLoader
+from utils.quota import allocate_quota
 
 REJECTION_REASONS = {
     "cold_food":     ("冷食/不适合60-70°C热柜", "guard_kill"),
@@ -238,7 +240,6 @@ def _save_evaluation_log(output, log_dir: Path):
                     "description_cn": ev.proposal.description_cn,
                     "vetoed": ev.vetoed,
                     "veto_reason": ev.veto_reason,
-                    "cuisine_blue_ocean": ev.cuisine_blue_ocean,
                     "trend_heat": ev.trend_heat,
                     "hawker_substitutability": ev.hawker_substitutability,
                     "total_score": ev.total_score,
@@ -284,7 +285,6 @@ def _load_output():
                     proposal=prop,
                     vetoed=e_data.get("vetoed", False),
                     veto_reason=e_data.get("veto_reason"),
-                    cuisine_blue_ocean=e_data.get("cuisine_blue_ocean", 0),
                     trend_heat=e_data.get("trend_heat", 0),
                     hawker_substitutability=e_data.get("hawker_substitutability", 0),
                     total_score=e_data.get("total_score", 0),
@@ -322,7 +322,6 @@ def _load_output():
                 proposal=prop,
                 vetoed=e_data.get("vetoed", False),
                 veto_reason=e_data.get("veto_reason"),
-                cuisine_blue_ocean=e_data.get("cuisine_blue_ocean", 0),
                 trend_heat=e_data.get("trend_heat", 0),
                 hawker_substitutability=e_data.get("hawker_substitutability", 0),
                 total_score=e_data.get("total_score", 0),
@@ -465,6 +464,15 @@ def _get_circuit_breaker(cooldown_seconds: float = 60.0):
     return CircuitBreaker(cooldown_seconds=cooldown_seconds)
 
 
+def _cached_sku_counts(config: dict) -> dict[str, int]:
+    """SKU count per cuisine as of the last classification, for the sidebar.
+    Empty if nothing has been classified yet or the cache cannot be read."""
+    try:
+        return SKUDataLoader(config).cached_cuisine_counts()
+    except Exception:
+        return {}
+
+
 def init_session():
     defaults = {
         "output": None,
@@ -489,9 +497,34 @@ def render_control_panel():
             default=["Mexican"],
         )
 
+        import yaml as _yaml
+        with open("config.yaml") as _f:
+            _cfg = _yaml.safe_load(_f)
+
+        total = int(st.number_input(
+            "本批总数", min_value=1, max_value=60,
+            value=_cfg["orchestrator"].get("total_target", 10), step=1,
+            help="这一批总共要找几道菜。按各菜系现有 SKU 数分配：SKU 越少的菜系配额越多。",
+        ))
+        # How many dishes each cuisine gets is decided here, not in the dish
+        # scores: the emptier a cuisine is on the menu, the larger its share.
+        sku_counts = _cached_sku_counts(_cfg)
+        suggested = allocate_quota(total, {c: sku_counts.get(c, 0) for c in cuisines})
+        targets: dict[str, int] = {}
+        if cuisines:
+            st.caption(
+                "建议配额（按现有 SKU 数，可改）" if sku_counts
+                else "建议配额（还没有菜系分类结果，先平均分，可改）"
+            )
+            for c in cuisines:
+                targets[c] = int(st.number_input(
+                    f"{c} · 现有 {sku_counts.get(c, 0)} 个 SKU",
+                    min_value=0, max_value=60, value=suggested[c], step=1,
+                    # A new total or selection gets fresh suggestions; until then edits stick.
+                    key=f"quota_{c}_{total}_{'|'.join(cuisines)}",
+                ))
+
         with st.expander("⚡ 高级参数"):
-            st.slider("目标数/菜系", 1, 20, 10, key="target")
-            st.slider("及格线", 50, 100, 80, key="threshold")
             st.slider("最大轮数", 1, 5, 3, key="max_rounds")
 
         with st.expander("🔑 模型配置"):
@@ -499,9 +532,6 @@ def render_control_panel():
             # Missing-API-key presets are filtered out at render time (mode A:
             # keys come from .env, not user input). Internal-tool form:
             # IT configures keys, users just pick a model.
-            import yaml as _yaml
-            with open("config.yaml") as _f:
-                _cfg = _yaml.safe_load(_f)
             _all_presets = _cfg["llm"].get("presets", [])
             _available = [p for p in _all_presets if os.getenv(p["api_key_env"])]
             if not _available:
@@ -556,6 +586,10 @@ def render_control_panel():
             st.rerun()
 
         if start_clicked:
+            if not any(targets.values()):
+                st.toast("⚠️ 请至少选一个菜系，并让它的配额大于 0")
+                st.rerun()
+
             # 抢进程级锁：抢不到说明已有搜索在跑（多 tab / 残留进程），不启动。
             lock = _get_pipeline_lock()
             if not lock.acquire():
@@ -571,8 +605,7 @@ def render_control_panel():
 
             # Capture sidebar params before starting thread
             # (st.session_state is not thread-safe)
-            target = st.session_state.get("target", 10)
-            threshold = st.session_state.get("threshold", 80)
+            run_targets = {c: n for c, n in targets.items() if n > 0}
             max_rounds = st.session_state.get("max_rounds", 3)
             selected_preset_id = st.session_state.get("selected_preset_id", "")
 
@@ -582,7 +615,7 @@ def render_control_panel():
                 "error": None,
                 "cuisines": {},        # NEW: per-cuisine progress
                 "total_locked": 0,
-                "target": target,
+                "targets": run_targets,
                 "stop_requested": False,
                 "run_id": st.session_state.get("_run_id", 0),
             }
@@ -624,8 +657,6 @@ def render_control_panel():
                     orch = Orchestrator("config.yaml")
                     orch.obs = obs
                     # Override config with sidebar parameters
-                    orch.config["orchestrator"]["target_per_cuisine"] = target
-                    orch.config["orchestrator"]["pass_threshold"] = threshold
                     orch.config["orchestrator"]["max_rounds_per_cuisine"] = max_rounds
 
                     # Inject selected preset + shared CircuitBreaker into orchestrator.
@@ -654,25 +685,22 @@ def render_control_panel():
                             update_state(c, r, p, m),
                             log(
                                 f"🔍 **{c}** · Round {r} · `{p}` · "
-                                f"已锁定 {m.get('locked_count', 0)}/"
-                                f"{m.get('remaining', 10) + m.get('locked_count', 0)}"
+                                f"候选 {m.get('locked_count', 0)}/{run_targets.get(c, 0)}"
                             ),
                         )
                     )
                     def on_round_complete(res):
-                        state["locked_count"] = min(res.locked_total, target)
-                        _write_progress(state)
                         log(
                             f"✅ **{res.cuisine}** Round {res.round_num}: "
                             f"生成 {res.proposals_generated} → "
-                            f"✅{res.passed_count} / ❌{res.rejected_count} → "
-                            f"锁定 {min(res.locked_total, target)}/{target} "
+                            f"可用 {res.passed_count} / 否决 {res.rejected_count} → "
+                            f"候选 {res.locked_total}/{run_targets.get(res.cuisine, 0)} "
                             f"({res.elapsed_seconds:.1f}s)"
                         )
 
                     orch.state_callbacks["on_round_complete"].append(on_round_complete)
 
-                    output = orch.run(cuisines)
+                    output = orch.run(list(run_targets), targets=run_targets)
                     was_stopped = _read_progress().get("stop_requested", False) if _read_progress() else False
 
                     if was_stopped:
@@ -762,16 +790,17 @@ def render_progress():
     if progress.get("stop_requested"):
         st.warning("⏹️ 已请求停止 — 等待当前 LLM 调用完成后将自动终止")
 
-    target_val = progress.get("target", 10)
+    targets = progress.get("targets", {})
+    total_target = sum(targets.values())
     total_locked = progress.get("total_locked", 0)
 
     # Per-cuisine progress cards
     cuisines_state = progress.get("cuisines", {})
     if cuisines_state:
         # Overall progress
-        if target_val > 0:
-            overall_pct = min(total_locked / (target_val * len(cuisines_state)), 1.0)
-            st.progress(overall_pct, text=f"总进度: 已锁定 {total_locked} / 目标 {target_val}×{len(cuisines_state)}菜系")
+        if total_target > 0:
+            overall_pct = min(total_locked / total_target, 1.0)
+            st.progress(overall_pct, text=f"总进度: 候选 {total_locked} / 本批 {total_target}")
 
         # Per-cuisine cards side by side
         cols = st.columns(min(len(cuisines_state), 3))
@@ -789,13 +818,14 @@ def render_progress():
                 }.get(phase, "⏳")
 
                 st.markdown(f"**{phase_emoji} {c_name}** — `{phase}`")
+                target_val = targets.get(c_name, 0)
                 if target_val > 0:
                     st.progress(
                         min(locked_count / target_val, 1.0),
-                        text=f"锁定 {locked_count}/{target_val}",
+                        text=f"候选 {locked_count}/{target_val}",
                     )
                 else:
-                    st.caption(f"锁定 {locked_count}")
+                    st.caption(f"候选 {locked_count}")
     else:
         # Fallback: no per-cuisine data yet (early startup)
         st.info("⏳ 正在初始化...")
@@ -841,10 +871,9 @@ def render_results():
             "排名": i + 1,
             "菜品": display_name,
             "菜系": e.proposal.cuisine,
-            "蓝海(40)": f"{e.cuisine_blue_ocean * 4:.0f}",
-            "趋势(35)": f"{e.trend_heat * 3.5:.0f}",
-            "替代(25)": f"{e.hawker_substitutability * 2.5:.0f}",
-            "总分": f"{e.total_score:.1f}",
+            "趋势(0-10)": f"{e.trend_heat:.0f}",
+            "替代(0-10)": f"{e.hawker_substitutability:.0f}",
+            "菜品分": f"{e.total_score:.1f}",
             "描述": display_desc,
         })
 

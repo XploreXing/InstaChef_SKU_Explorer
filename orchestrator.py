@@ -9,10 +9,37 @@ from utils.data_loader import SKUDataLoader
 from utils.guard import HardConstraintGuard
 from utils.feedback_loader import _normalize_name
 from utils.observability import ObservabilityLogger
+from utils.quota import allocate_quota
 from agents.generator import GeneratorAgent
 from agents.evaluator import EvaluatorAgent
 import threading
 from utils.duplication_checker import check_duplicates
+
+
+def _vetoed_result(p: dict, cuisine: str, veto_reason: str, reasoning: str) -> EvaluationResult:
+    """A proposal stopped by a deterministic layer, before the evaluator sees it."""
+    return EvaluationResult(
+        proposal=DishProposal(
+            id=p.get("id", 0),
+            name=p.get("name", ""),
+            name_cn=p.get("name_cn", ""),
+            cuisine=cuisine,
+            price_sgd=p.get("price_sgd", 0),
+            description=p.get("description", ""),
+            description_cn=p.get("description_cn", ""),
+            differentiation=p.get("differentiation", ""),
+            trend_source=p.get("trend_source", ""),
+            source_urls=p.get("source_urls", []),
+        ),
+        vetoed=True,
+        veto_reason=veto_reason,
+        trend_heat=0,
+        hawker_substitutability=0,
+        total_score=0,
+        passed=False,
+        reasoning=reasoning,
+    )
+
 
 class Orchestrator:
     def __init__(self, config_path: str = "config.yaml"):
@@ -31,7 +58,7 @@ class Orchestrator:
         self._eval_lock: threading.Lock | None = None
         self.breaker = None  # CircuitBreaker, injected by app.py (or self-created)
         self._summary_router = None  # cached LLMRouter for feedback/summary calls
-        
+
         self.obs: "ObservabilityLogger | None" = None  # set by app.py or tests
 
     def load_skus(self):
@@ -56,27 +83,40 @@ class Orchestrator:
                 breaker=self.breaker,
             )
         return self._summary_router
-       
 
-    def run(self, cuisines: list[str] | None = None) -> FinalOutput:
-        targets = cuisines or self.config["orchestrator"]["cuisines"]
+
+    def run(self, cuisines: list[str] | None = None,
+            targets: dict[str, int] | None = None) -> FinalOutput:
+        """Look for dishes in `cuisines`. `targets` says how many per cuisine;
+        without it, orchestrator.total_target is split across the cuisines by
+        how few SKUs each already has. A cuisine with a quota of 0 is skipped."""
+        cfg = self.config["orchestrator"]
+        selected = cuisines or cfg["cuisines"]
+        if targets is None:
+            counts = self.sku_loader.get_cuisine_counts()
+            targets = allocate_quota(
+                cfg["total_target"], {c: counts.get(c, 0) for c in selected}
+            )
+        targets = {c: targets[c] for c in selected if targets.get(c, 0) > 0}
+
         self._init_agents()
         t_start = time.time()
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
-            futures={
-                pool.submit(self._process_cuisine, c) :c for c in targets
-            }
-            self.results={}
-            for future in as_completed(futures):
-                cuisine=futures[future]
-                try:
-                    self.results[cuisine]=future.result()
-                except Exception as e:
-                    print(f'{cuisine}failed : {e}',flush=True)
-                    self.results[cuisine]=CuisineResult(
-                        cuisine=cuisine,total_rounds=0,locked=[],rounds_history=[],
-                    )
+        self.results={}
+        if targets:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+                futures={
+                    pool.submit(self._process_cuisine, c, n) :c for c, n in targets.items()
+                }
+                for future in as_completed(futures):
+                    cuisine=futures[future]
+                    try:
+                        self.results[cuisine]=future.result()
+                    except Exception as e:
+                        print(f'{cuisine}failed : {e}',flush=True)
+                        self.results[cuisine]=CuisineResult(
+                            cuisine=cuisine,total_rounds=0,locked=[],rounds_history=[],
+                        )
 
         self.state = OrchestratorState.AGGREGATING
         output = FinalOutput(
@@ -92,23 +132,25 @@ class Orchestrator:
         self.state = OrchestratorState.DONE
         return output
 
-    def _process_cuisine(self, cuisine: str) -> CuisineResult:
+    def _process_cuisine(self, cuisine: str, target: int) -> CuisineResult:
         cfg = self.config["orchestrator"]
         #Each thread gets its own Generator (Thread-safe ToolContext)
         generator=GeneratorAgent(self.config, breaker=self.breaker)
         evaluator=self.evaluator
 
-        locked: list[EvaluationResult] = []
+        # Every evaluated dish that was not vetoed. The best `target` of them
+        # are selected at the end; there is no score a dish has to reach.
+        candidates: list[EvaluationResult] = []
         rounds_history: list[RoundResult] = []
         feedback = ""
-        current_threshold = cfg["pass_threshold"]  # may auto-lower between rounds
 
         cuisine_skus = self.sku_loader.get_by_cuisine(cuisine)
+        max_rounds = cfg["max_rounds_per_cuisine"]
 
-        for round_num in range(1, cfg["max_rounds_per_cuisine"] + 1):
+        for round_num in range(1, max_rounds + 1):
             if self.stop_check and self.stop_check():
                 break
-            remaining = cfg["target_per_cuisine"] - len(locked)
+            remaining = target - len(candidates)
             if remaining <= 0:
                 break
 
@@ -117,7 +159,7 @@ class Orchestrator:
             # GENERATING
             self.state = OrchestratorState.GENERATING
             self._emit(cuisine, round_num, "generating", {
-                "locked_count": len(locked), "remaining": remaining
+                "locked_count": len(candidates), "remaining": remaining
             })
 
             # Load HITL feedback (must be before Generator call)
@@ -138,7 +180,7 @@ class Orchestrator:
 
             # Trace: generate
             t_gen = time.time()
-            locked_names = [e.proposal.name for e in locked]
+            locked_names = [e.proposal.name for e in candidates]
 
             print(f"  [generate] cuisine={cuisine}, round={round_num}, existing_skus={len(cuisine_skus)}", flush=True)
             proposal_dicts = generator.generate(
@@ -183,26 +225,9 @@ class Orchestrator:
                 name = p.get("name", "")
                 normalized = _normalize_name(name, sort_tokens=True)
                 if normalized and normalized in blacklist:
-                    hitl_vetoed.append(EvaluationResult(
-                        proposal=DishProposal(
-                            id=p.get("id", 0),
-                            name=name,
-                            name_cn=p.get("name_cn", ""),
-                            cuisine=cuisine,
-                            price_sgd=p.get("price_sgd", 0),
-                            description=p.get("description", ""),
-                            description_cn=p.get("description_cn", ""),
-                            differentiation=p.get("differentiation", ""),
-                            trend_source=p.get("trend_source", ""),
-                            source_urls=p.get("source_urls", []),
-                        ),
-                        vetoed=True,
+                    hitl_vetoed.append(_vetoed_result(
+                        p, cuisine,
                         veto_reason="HITL黑名单：确定性去重（此前被人工拒绝）",
-                        cuisine_blue_ocean=0,
-                        trend_heat=0,
-                        hawker_substitutability=0,
-                        total_score=0,
-                        passed=False,
                         reasoning="HITL 反馈黑名单 — 确定性去重拦截",
                     ))
                     self._obs_emit(
@@ -219,7 +244,7 @@ class Orchestrator:
                 else:
                     hitl_passed_proposals.append(p)
             #不再需要在Orchestrator的逻辑中进行lineage validation逻辑
-           
+
 
             # --- Task 1: Hard-coded guard pre-check (before Evaluator LLM) ---
             guard_vetoed: list[EvaluationResult] = []
@@ -228,26 +253,9 @@ class Orchestrator:
             for p in hitl_passed_proposals:
                 passed, veto_reason = HardConstraintGuard.precheck(p)
                 if not passed:
-                    guard_vetoed.append(EvaluationResult(
-                        proposal=DishProposal(
-                            id=p.get("id", 0),
-                            name=p.get("name", ""),
-                            name_cn=p.get("name_cn", ""),
-                            cuisine=p.get("cuisine", ""),
-                            price_sgd=p.get("price_sgd", 0),
-                            description=p.get("description", ""),
-                            description_cn=p.get("description_cn", ""),
-                            differentiation=p.get("differentiation", ""),
-                            trend_source=p.get("trend_source", ""),
-                            source_urls=p.get("source_urls", []),
-                        ),
-                        vetoed=True,
+                    guard_vetoed.append(_vetoed_result(
+                        p, p.get("cuisine", ""),
                         veto_reason=veto_reason,
-                        cuisine_blue_ocean=0,
-                        trend_heat=0,
-                        hawker_substitutability=0,
-                        total_score=0,
-                        passed=False,
                         reasoning="高压线熔断 — 无需 LLM 评估",
                     ))
                     self._obs_emit(
@@ -273,26 +281,9 @@ class Orchestrator:
                     existing_skus=cuisine_skus
     )
                 if is_dup:
-                    dup_vetoed.append(EvaluationResult(
-                        proposal=DishProposal(
-                            id=p.get("id", 0),
-                            name=p.get("name", ""),
-                            name_cn=p.get("name_cn", ""),
-                            cuisine=p.get("cuisine", ""),
-                            price_sgd=p.get("price_sgd", 0),
-                            description=p.get("description", ""),
-                            description_cn=p.get("description_cn", ""),
-                            differentiation=p.get("differentiation", ""),
-                            trend_source=p.get("trend_source", ""),
-                            source_urls=p.get("source_urls", []),
-                        ),
-                        vetoed=True,
+                    dup_vetoed.append(_vetoed_result(
+                        p, p.get("cuisine", ""),
                         veto_reason=reason,
-                        cuisine_blue_ocean=0,
-                        trend_heat=0,
-                        hawker_substitutability=0,
-                        total_score=0,
-                        passed=False,
                         reasoning=f"去重检查 — 确定性拦截 (相似度 {score:.0%})",
                     ))
                     self._obs_emit(
@@ -315,7 +306,7 @@ class Orchestrator:
             self._emit(cuisine, round_num, "evaluating", {
                 "proposal_count": len(proposal_dicts),
                 "guard_vetoed": len(guard_vetoed),
-                "locked_count": len(locked),
+                "locked_count": len(candidates),
                 "remaining": remaining,
             })
 
@@ -342,20 +333,14 @@ class Orchestrator:
                 with self._eval_lock:
                     evaluations_raw, summary, suggestions = evaluator.evaluate(
                         proposals=dup_passed_proposals,
-                        cuisine_sku_count=len(cuisine_skus),
-                        round_num=round_num,
-                        locked_count=len(locked),
-                        remaining=remaining,
-                        pass_threshold=current_threshold,
                         hitl_context=hitl_context,
                 )
-
-                if evaluations_raw:
-                    llm_results = EvaluatorAgent.to_evaluation_results(
-                        evaluations_raw, dup_passed_proposals
-                    )
-                else:
-                    llm_results = []
+                # A dish the evaluator did not score comes back vetoed with that
+                # as the reason, so an evaluator that returns nothing is visible
+                # in the round instead of looking like an empty batch.
+                llm_results = EvaluatorAgent.to_evaluation_results(
+                    evaluations_raw, dup_passed_proposals
+                )
             else:
                 llm_results = []
                 suggestions = ""
@@ -367,9 +352,8 @@ class Orchestrator:
                 input_size_chars=sum(len(str(p)) for p in dup_passed_proposals),
                 output_size_chars=sum(len(str(e)) for e in llm_results),
             )
-            # Count evaluator-level vetoes (from LLM results)
             eval_vetoed = [e for e in llm_results if e.vetoed]
-            eval_passed = [e for e in llm_results if e.passed]
+            new_candidates = [e for e in llm_results if e.passed]
             self._obs_emit(
                 cuisine=cuisine, round_num=round_num, stage="evaluate",
                 event_type="stage_end", status="success",
@@ -378,48 +362,39 @@ class Orchestrator:
                 input_size_chars=trace_evaluate.input_size_chars,
                 output_size_chars=trace_evaluate.output_size_chars,
                 payload={
-                    "evaluated_count": len(guard_passed_proposals),
-                    "passed_count": len(eval_passed),
+                    "evaluated_count": len(dup_passed_proposals),
+                    "candidate_count": len(new_candidates),
                     "vetoed_count": len(eval_vetoed),
-                    "low_score_count": len(llm_results) - len(eval_passed) - len(eval_vetoed),
-                    "avg_score": round(sum(e.total_score for e in llm_results) / max(len(llm_results), 1), 1),
+                    "avg_score": round(sum(e.total_score for e in new_candidates) / max(len(new_candidates), 1), 1),
                 },
             )
 
             # Combine: HITL-vetoed + guard-vetoed + dup-vetoed + LLM-evaluated
             evaluation_results = hitl_vetoed + guard_vetoed + dup_vetoed + llm_results
-
-            new_passed = [e for e in evaluation_results if e.passed]
-            new_rejected = [e for e in evaluation_results if not e.passed]
+            candidates.extend(new_candidates)
 
             # Observability: judging stage summary
             self._obs_emit(
                 cuisine=cuisine, round_num=round_num, stage="judging",
                 event_type="stage_end", status="success",
                 payload={
-                    "threshold": current_threshold,
-                    "new_locked": len(new_passed),
-                    "total_locked": len(locked) + len(new_passed),
+                    "target": target,
+                    "new_candidates": len(new_candidates),
+                    "total_candidates": len(candidates),
                 },
             )
-
-            for i, e in enumerate(new_passed):
-                locked.append(e)
-                display_locked = min(len(locked), cfg["target_per_cuisine"])
-                self._emit(cuisine, round_num, "judging", {
-                    "locked_count": display_locked,
-                    "remaining": max(0, cfg["target_per_cuisine"] - display_locked),
-                })
-                if i < len(new_passed) - 1:
-                    time.sleep(1)  # brief pause so UI poll catches each step
+            self._emit(cuisine, round_num, "judging", {
+                "locked_count": min(len(candidates), target),
+                "remaining": max(0, target - len(candidates)),
+            })
 
             round_result = RoundResult(
                 cuisine=cuisine,
                 round_num=round_num,
                 proposals_generated=len(proposal_dicts),
-                passed_count=len(new_passed),
-                rejected_count=len(new_rejected),
-                locked_total=len(locked),
+                passed_count=len(new_candidates),
+                rejected_count=len(evaluation_results) - len(new_candidates),
+                locked_total=min(len(candidates), target),
                 evaluations=evaluation_results,
                 improvement_suggestions=suggestions,
                 elapsed_seconds=time.time() - t_round,
@@ -429,51 +404,34 @@ class Orchestrator:
             rounds_history.append(round_result)
             self._emit_round_complete(round_result)
 
-            # --- Trace: feedback ---
-            t_fb = time.time()
+            round_traces = [trace_generate, trace_evaluate]
 
-            # --- LLM semantic compression: synthesize feedback + decide threshold ---
-            feedback, new_threshold = self._synthesize_feedback(
-                evaluation_results=evaluation_results,
-                cuisine=cuisine,
-                pass_threshold=current_threshold,
-                round_num=round_num,
-                sku_count=len(cuisine_skus),
-            )
-
-            if new_threshold < current_threshold:
-                print(f"🔧 Orchestrator: LLM lowered threshold {current_threshold}→{new_threshold}", flush=True)
-                round_result.improvement_suggestions = (
-                    f"[LLM auto-adjusted threshold {current_threshold}→{new_threshold}] "
-                    + (round_result.improvement_suggestions or "")
+            # Feedback only matters if another round is going to use it.
+            if len(candidates) < target and round_num < max_rounds:
+                t_fb = time.time()
+                # --- LLM semantic compression: brief the Generator for the next round ---
+                feedback = self._synthesize_feedback(
+                    evaluation_results=evaluation_results,
+                    cuisine=cuisine,
+                    round_num=round_num,
                 )
-                current_threshold = new_threshold
-
-            trace_feedback = StageTrace(
-                stage="feedback",
-                elapsed_ms=(time.time() - t_fb) * 1000,
-                model_name=self.config["llm"].get("generator_model", "n/a"),
-                input_size_chars=sum(len(str(e)) for e in evaluation_results),
-                output_size_chars=len(feedback),
-            )
-            self._obs_emit(
-                cuisine=cuisine, round_num=round_num, stage="feedback",
-                event_type="stage_end", status="success",
-                elapsed_ms=trace_feedback.elapsed_ms,
-                model_name=trace_feedback.model_name,
-                input_size_chars=trace_feedback.input_size_chars,
-                output_size_chars=len(feedback),
-                payload={
-                    "feedback_length_chars": len(feedback),
-                    "threshold_before": current_threshold,
-                    "threshold_after": new_threshold,
-                    "auto_adjusted": new_threshold < current_threshold,
-                    "adjustment": new_threshold - current_threshold,
-                },
-            )
-
-            # Collect all stage traces for this round
-            round_traces = [trace_generate, trace_evaluate, trace_feedback]
+                trace_feedback = StageTrace(
+                    stage="feedback",
+                    elapsed_ms=(time.time() - t_fb) * 1000,
+                    model_name=self.config["llm"].get("generator_model", "n/a"),
+                    input_size_chars=sum(len(str(e)) for e in evaluation_results),
+                    output_size_chars=len(feedback),
+                )
+                self._obs_emit(
+                    cuisine=cuisine, round_num=round_num, stage="feedback",
+                    event_type="stage_end", status="success",
+                    elapsed_ms=trace_feedback.elapsed_ms,
+                    model_name=trace_feedback.model_name,
+                    input_size_chars=trace_feedback.input_size_chars,
+                    output_size_chars=len(feedback),
+                    payload={"feedback_length_chars": len(feedback)},
+                )
+                round_traces.append(trace_feedback)
 
             round_result.stage_traces = round_traces
 
@@ -484,54 +442,47 @@ class Orchestrator:
                 trace_parts.append(f"{t.stage}={sec:.1f}s")
             print(f"⏱ {cuisine} Round {round_num} traces: {' | '.join(trace_parts)}", flush=True)
 
-            if current_threshold < cfg["pass_threshold"]:
-                feedback += (
-                    f"\n\nNote: pass threshold has been auto-adjusted to {current_threshold} "
-                    f"(original: {cfg['pass_threshold']})."
-                )
-
+        # Selection: the best `target` candidates by score. sorted() is stable,
+        # so equal scores keep the order they were proposed in.
+        locked = sorted(candidates, key=lambda e: e.total_score, reverse=True)[:target]
         return CuisineResult(
             cuisine=cuisine,
             total_rounds=len(rounds_history),
-            locked=locked[:cfg["target_per_cuisine"]],
+            locked=locked,
             rounds_history=rounds_history,
         )
-
-    def _should_continue(self, locked_count: int, round_num: int) -> bool:
-        cfg = self.config["orchestrator"]
-        if locked_count >= cfg["target_per_cuisine"]:
-            return False
-        if round_num >= cfg["max_rounds_per_cuisine"]:
-            return False
-        return True
 
     def _synthesize_feedback(
         self,
         evaluation_results: list[EvaluationResult],
         cuisine: str,
-        pass_threshold: int,
         round_num: int,
-        sku_count: int,
-    ) -> tuple[str, int]:
+    ) -> str:
         """LLM-based semantic compression: summarize evaluator findings and
-        produce actionable feedback for the Generator's next round.
-        Returns (feedback_text, recommended_threshold)."""
+        produce actionable feedback for the Generator's next round."""
         import json as _json
 
         # Build a compact round summary for the LLM
-        passed = [e for e in evaluation_results if e.passed]
         vetoed = [e for e in evaluation_results if e.vetoed]
-        low_score = [e for e in evaluation_results if not e.passed and not e.vetoed]
+        ranked = sorted(
+            (e for e in evaluation_results if e.passed),
+            key=lambda e: e.total_score, reverse=True,
+        )
+
+        def _scores(e: EvaluationResult) -> dict:
+            return {
+                "name": e.proposal.name,
+                "trend_heat": e.trend_heat,
+                "hawker_sub": e.hawker_substitutability,
+                "total": e.total_score,
+            }
 
         summary = {
             "round": round_num,
             "cuisine": cuisine,
             "total_proposals": len(evaluation_results),
-            "passed": len(passed),
+            "usable": len(ranked),
             "vetoed": len(vetoed),
-            "low_score": len(low_score),
-            "pass_threshold": pass_threshold,
-            "cuisine_sku_count": sku_count,
         }
 
         # Summarize vetoed items
@@ -541,54 +492,30 @@ class Orchestrator:
                 for e in vetoed[:5]
             ]
 
-        # Summarize low-score items with dimensional breakdown
-        if low_score:
-            summary["low_score_profile"] = {
-                "avg_blue_ocean": f"{sum(e.cuisine_blue_ocean for e in low_score) / len(low_score):.1f}",
-                "avg_trend_heat": f"{sum(e.trend_heat for e in low_score) / len(low_score):.1f}",
-                "avg_hawker_sub": f"{sum(e.hawker_substitutability for e in low_score) / len(low_score):.1f}",
-                "max_score": f"{max(e.total_score for e in low_score):.1f}",
-                "examples": [
-                    {
-                        "name": e.proposal.name,
-                        "blue_ocean": e.cuisine_blue_ocean,
-                        "trend_heat": e.trend_heat,
-                        "hawker_sub": e.hawker_substitutability,
-                        "total": e.total_score,
-                    }
-                    for e in sorted(low_score, key=lambda x: -x.total_score)[:3]
-                ],
-            }
+        # Dimension scores of the best and the worst usable dishes
+        if ranked:
+            summary["strongest"] = [_scores(e) for e in ranked[:3]]
+            summary["weakest"] = [_scores(e) for e in ranked[3:][-3:]]
 
         system_prompt = """You are a feedback synthesizer in InstaChef's SKU Explorer pipeline.
-Your job: compress the evaluator's raw output into a concise, actionable brief for the Generator agent.
+Your job: compress the evaluator's raw output into a concise, actionable brief for the Generator agent, which will propose more dishes for this cuisine.
 
 Rules:
-1. Diagnose WHY proposals failed — identify the dominant failure pattern (veto vs low-score, which dimension is weakest).
-2. Translate metrics into CONCRETE guidance the Generator can act on. Don't say "blue ocean score is low" — say "avoid variants of existing dishes; propose niche sub-regional specialties".
+1. Diagnose what went wrong — the dominant veto reason, and which dimension is weakest among the lowest-scoring dishes.
+2. Translate metrics into CONCRETE guidance the Generator can act on. Don't say "trend heat is low" — say "propose dishes that restaurant chains in Singapore are already promoting".
 3. If multiple proposals were vetoed for the same reason, highlight that pattern once — don't repeat every example.
-4. If the pass rate was 0, suggest a direction change rather than incremental tweaks.
-
-Also decide whether to adjust the pass threshold for the next round:
-- If failures are ALL vetoes (hard constraints): do NOT lower threshold (vetoed items still fail at any threshold).
-- If failures are ALL low scores and the gap is small (avg score within 5 points): lower by 5.
-- If failures are ALL low scores and gap is medium (5-10 points): lower by 10.
-- If failures are ALL low scores and gap is large (>10 points): lower by 15.
-- Floor: never go below 60.
-- If some proposals passed already, do NOT lower.
+4. If nothing was usable, suggest a direction change rather than incremental tweaks.
 
 Output JSON:
-{"feedback": "<actionable brief for Generator, <300 words>",
- "threshold_adjustment": -5}"""
+{"feedback": "<actionable brief for Generator, <300 words>"}"""
 
         user_message = f"""Round {round_num} results for {cuisine} cuisine:
 
 {_json.dumps(summary, ensure_ascii=False, indent=2)}
 
-Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no change)."""
+Output JSON with feedback."""
 
         try:
-            cfg = self.config["llm"]
             client = self._get_summary_router()
             response = client.chat(
                 messages=[
@@ -601,11 +528,9 @@ Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no cha
                 thinking=False,  # reasoning tokens would eat the 600-token budget
             )
             data = _json.loads(response.choices[0].message.content)
-            feedback_text = data.get("feedback", "")
-            adjustment = int(data.get("threshold_adjustment", 0))
-            return feedback_text.strip(), max(pass_threshold + adjustment, 60)
+            return data.get("feedback", "").strip()
         except Exception as e:
-            # Fallback: basic rule-based feedback + fixed adjustment
+            # Fallback: basic rule-based feedback
             parts = []
             if vetoed:
                 reasons = {}
@@ -613,20 +538,9 @@ Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no cha
                     r = v.veto_reason or "unknown"
                     reasons[r] = reasons.get(r, 0) + 1
                 parts.append(f"Vetoed: {', '.join(f'{c}x {r}' for r, c in reasons.items())}.")
-            if low_score:
-                gap = pass_threshold - max(e.total_score for e in low_score)
-                if gap <= 5:
-                    adj = -5
-                elif gap <= 10:
-                    adj = -10
-                else:
-                    adj = -15
-                parts.append(
-                    f"All {len(low_score)} scored below {pass_threshold}. "
-                    f"Try different dish concepts."
-                )
-                return " ".join(parts), max(pass_threshold + adj, 60)
-            return " ".join(parts), pass_threshold
+            if not ranked:
+                parts.append("No proposal was usable. Try different dish concepts.")
+            return " ".join(parts)
 
     def _generate_executive_summary(self, output: FinalOutput) -> ExecutiveSummary:
         """LLM-generated business-readable summary for stakeholders."""
@@ -639,16 +553,17 @@ Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no cha
         low_score_notes: list[str] = []
 
         for cuisine, cr in output.cuisines.items():
+            total_passed += len(cr.locked)
+            selected = {id(e) for e in cr.locked}
             for rr in cr.rounds_history:
                 total_proposals += rr.proposals_generated
-                total_passed += sum(1 for e in rr.evaluations if e.passed)
                 for e in rr.evaluations:
                     if e.vetoed and e.veto_reason:
                         key = e.veto_reason[:60]
                         veto_patterns[key] = veto_patterns.get(key, 0) + 1
-                    elif not e.passed and not e.vetoed:
+                    elif not e.vetoed and id(e) not in selected:
                         low_score_notes.append(
-                            f"{e.proposal.name}: blue={e.cuisine_blue_ocean:.0f} "
+                            f"{e.proposal.name}: "
                             f"trend={e.trend_heat:.0f} hawker={e.hawker_substitutability:.0f}"
                         )
 
@@ -665,10 +580,10 @@ Generate a concise business summary in JSON format. Keep it under 200 words tota
 Focus on patterns and actionable insights, not raw data."""
 
         user_message = f"""Pipeline completed. Aggregate stats:
-- Overall pass rate: {pass_rate}
+- Selected / proposed: {pass_rate}
 - Total proposals evaluated: {total_proposals}
 - Top veto patterns: {_json.dumps(top_vetoes)}
-- Low-score notes (sample): {_json.dumps(low_score_notes[:5])}
+- Usable but not selected (sample): {_json.dumps(low_score_notes[:5])}
 - Top locked recommendations: {_json.dumps(top_passed)}
 
 Output JSON:
@@ -714,7 +629,7 @@ Output JSON:
                 top_recommendations=top_passed,
             )
     #不再需要保存搜索的snippet逻辑
-    
+
 
     def _obs_emit(self, **kwargs):
         """Convenience: emit to self.obs if set, no-op otherwise."""

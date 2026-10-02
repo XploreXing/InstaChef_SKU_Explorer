@@ -43,7 +43,6 @@ class TestGuardIntegration:
             ),
             vetoed=True,
             veto_reason=veto_reason,
-            cuisine_blue_ocean=0,
             trend_heat=0,
             hawker_substitutability=0,
             total_score=0,
@@ -54,7 +53,6 @@ class TestGuardIntegration:
         assert result.vetoed is True
         assert result.passed is False
         assert result.total_score == 0
-        assert result.cuisine_blue_ocean == 0
         assert result.trend_heat == 0
         assert result.hawker_substitutability == 0
         assert "高压线" in result.reasoning

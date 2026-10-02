@@ -139,6 +139,8 @@ data:
 
 orchestrator:
   max_rounds_per_cuisine: 3
-  target_per_cuisine: 10
-  pass_threshold: 80
+  # Dishes to find in one batch, across all selected cuisines. The batch is
+  # split by how few SKUs each cuisine already has (utils/quota.py); within a
+  # cuisine the best-scoring dishes are taken. There is no pass threshold.
+  total_target: 10
   cuisines: ["Chinese", "Japanese", "Korean", "Thai", "Singaporean/Malay", "Mexican"]

@@ -13,7 +13,7 @@ def _make_eval(proposal, score, passed=True):
     return EvaluationResult(
         proposal=proposal, vetoed=not passed,
         veto_reason=None if passed else "test veto",
-        cuisine_blue_ocean=score/40*10, trend_heat=score/35*10,
+        trend_heat=score/35*10,
         hawker_substitutability=score/25*10,
         total_score=score, passed=passed, reasoning="test",
     )

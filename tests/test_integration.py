@@ -79,7 +79,7 @@ def test_aggregator_full_flow():
 
     def make_eval(p, score):
         return EvaluationResult(
-            p, False, None, score / 4, score / 3.5,
+            p, False, None, score / 3.5,
             score / 2.5, score, True, "r"
         )
 

@@ -12,7 +12,7 @@ Generator → Evaluator 双 Agent 循环，Orchestrator 协调，支持 Tavily �
 │  控制面板 | 搜索进度 | 推荐结果 | 导出清单 | HITL 反馈         │
 ├─────────────────────────────────────────────────────────────────┤
 │                      Orchestrator                               │
-│              (状态机 + LLM 语义压缩 + 自动阈值调节)              │
+│          (状态机 + LLM 语义压缩 + 按 SKU 稀缺度分配配额)          │
 ├──────────┬──────────┬──────────┬──────────┬────────────────────┤
 │ 2-Hop    │ Guard    │ Evaluator│ Generator│ HITL               │
 │ Search   │ 高压线   │ 评分审计  │ 提案生成  │ 反馈引擎           │
@@ -30,7 +30,8 @@ Generator → Evaluator 双 Agent 循环，Orchestrator 协调，支持 Tavily �
 - **2-Hop 搜索**: Tavily 宽搜发现 → 提取餐厅名 → 定向补证据
 - **双轨证据**: dish_name_matched（严格）+ trend_matched（宽松）
 - **HITL 反馈**: 人工拒绝 → 黑名单 auto-veto → Generator prompt 学习
-- **智能 Orchestrator**: LLM 诊断失败原因 + 自动调节评分阈值
+- **配额与选菜分离**: 每批总数按各菜系现有 SKU 数分配（SKU 越少配额越多）；菜系内按菜品分取前 N 名，不设及格线
+- **智能 Orchestrator**: 配额未满时由 LLM 诊断失败原因并回灌给 Generator
 - **性能追踪**: 5 阶段计时 tracing，瓶颈可视化
 - **中英双语**: 所有提案同时包含中英文名称和描述
 
@@ -96,8 +97,7 @@ pytest tests/ -v
 ```yaml
 orchestrator:
   max_rounds_per_cuisine: 3
-  target_per_cuisine: 10
-  pass_threshold: 80
+  total_target: 10          # 一批总共找几道，按各菜系现有 SKU 数分配
   cuisines: ["Chinese", "Japanese", "Korean", "Thai",
              "Singaporean/Malay", "Mexican"]
 
@@ -144,9 +144,9 @@ SKU_Explorer/
 Search (2-hop Tavily)
   → Guard (确定性规则拦截: 清真/冷食/热柜限制)
     → HITL Blacklist (人类反馈去重)
-      → Evaluator (物理状态审计 → 清真合规 → 油炸/小贩/重复 → 3 维打分)
-        → Judging (证据降权 + 锁定)
-          → Orchestrator (LLM 诊断 → feedback → 自动调阈值 → 下一轮)
+      → Evaluator (搜索验证真实性 → 趋势热度、小贩替代性 2 维打分)
+        → Judging (代码计算菜品分，菜系内取前 N 名)
+          → Orchestrator (配额未满时：LLM 诊断 → feedback → 下一轮)
 ```
 
 ### 审计日志

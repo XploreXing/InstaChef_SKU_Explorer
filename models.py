@@ -33,11 +33,10 @@ class EvaluationResult:
     proposal: DishProposal
     vetoed: bool
     veto_reason: Optional[str]
-    cuisine_blue_ocean: float
-    trend_heat: float
-    hawker_substitutability: float
-    total_score: float
-    passed: bool
+    trend_heat: float               # 0-10, scored by the evaluator
+    hawker_substitutability: float  # 0-10, scored by the evaluator
+    total_score: float              # 0-100, computed in code from the two scores above
+    passed: bool                    # still a candidate, i.e. not vetoed; the selection is CuisineResult.locked
     reasoning: str
 
 

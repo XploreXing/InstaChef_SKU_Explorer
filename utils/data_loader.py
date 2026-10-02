@@ -213,6 +213,14 @@ Return ONLY valid JSON:
             counts[c.cuisine_type] = counts.get(c.cuisine_type, 0) + 1
         return counts
 
+    def cached_cuisine_counts(self) -> dict[str, int]:
+        """SKU count per cuisine from the enrichment cache alone: no CSV read,
+        no LLM call. Empty when nothing has been classified yet."""
+        counts: dict[str, int] = {}
+        for c in self._load_cache().values():
+            counts[c.cuisine_type] = counts.get(c.cuisine_type, 0) + 1
+        return counts
+
     @property
     def all_commodities(self) -> list[ProcessedCommodity]:
         return self._commodities

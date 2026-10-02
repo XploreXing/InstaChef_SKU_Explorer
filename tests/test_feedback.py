@@ -126,7 +126,7 @@ def _locked(name, name_cn, score):
             description=f"{name} description", description_cn=f"{name_cn}描述",
             differentiation="", trend_source="",
         ),
-        vetoed=False, veto_reason=None, cuisine_blue_ocean=8, trend_heat=8,
+        vetoed=False, veto_reason=None, trend_heat=8,
         hawker_substitutability=8, total_score=score, passed=True, reasoning="",
     )
 

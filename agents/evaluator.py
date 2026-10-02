@@ -20,36 +20,41 @@ def _load_system_prompt() -> str:
     return EVALUATOR_SYSTEM_PROMPT
 
 
-def _serialize_commodities(commodities) -> list[dict]:
-    """Serialize commodities for Evaluator prompt.
-    Keeps cuisine_type so blue-ocean scoring knows the count per cuisine."""
-    return [
-        {"name": c.name, "cuisine_type": c.cuisine_type, "description": c.description[:120]}
-        for c in commodities
-    ]
+# Weights of the two dish-level dimensions, kept in the ratio they had in the
+# original rubric (35 : 25). The total is computed here, never by the model.
+DISH_WEIGHTS = {"trend_heat": 3.5, "hawker_substitutability": 2.5}
 
 
-def build_evaluator_user_message(
-    proposals: list[dict],
-    cuisine_sku_count: int,
-    round_num: int,
-    locked_count: int,
-    remaining: int,
-    pass_threshold: int = 80,
-    hitl_context: str = "",
-) -> str:
+def dish_score(trend_heat: float, hawker_substitutability: float) -> float:
+    """A dish's score on 0-100 from its two dimension scores (0-10 each)."""
+    points = (trend_heat * DISH_WEIGHTS["trend_heat"]
+              + hawker_substitutability * DISH_WEIGHTS["hawker_substitutability"])
+    return round(points / (10 * sum(DISH_WEIGHTS.values())) * 100, 1)
+
+
+def _raw_score(scores: dict, dimension: str) -> float:
+    """The model's 0-10 score for one dimension, or 0 if it is missing or not a number."""
+    entry = scores.get(dimension)
+    raw = entry.get("raw") if isinstance(entry, dict) else entry
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return 0.0
+    return min(max(float(raw), 0.0), 10.0)
+
+
+# Veto reason given to a proposal the evaluator returned no evaluation for.
+NOT_SCORED_REASON = "Evaluator 未返回该菜的评分"
+
+
+def _match_key(name) -> str:
+    return " ".join(str(name or "").lower().split())
+
+
+def build_evaluator_user_message(proposals: list[dict], hitl_context: str = "") -> str:
+    """The evaluator sees the dishes and nothing about the run: how many are
+    wanted or already found is not its business, only how good each dish is."""
     parts = [
-        f"## Cuisine Context",
-        f"Current SKU count for this cuisine: {cuisine_sku_count}",
-        f"(Fewer SKUs → higher Blue Ocean score)",
-        "",
         "## Proposals to Evaluate (all hard-constraint checks already passed)",
         json.dumps(proposals, indent=2, ensure_ascii=False),
-        "",
-        "## Progress",
-        f"Round {round_num} of 3.",
-        f"Currently {locked_count} accepted, need {remaining} more.",
-        f"Pass threshold: total_score >= {pass_threshold}.",
     ]
 
     if hitl_context:
@@ -57,9 +62,7 @@ def build_evaluator_user_message(
 
     parts.extend([
         "",
-        "Evaluate each proposal against the 4 hard constraints first.",
-        "If any constraint fails, mark as vetoed with score 0.",
-        "Only score the 3 dimensions if ALL constraints pass.",
+        "Score every proposal on the 2 dimensions.",
     ])
     return "\n".join(parts)
 
@@ -78,24 +81,11 @@ class EvaluatorAgent:
     def evaluate(
         self,
         proposals: list[dict],
-        cuisine_sku_count: int,
-        round_num: int = 1,
-        locked_count: int = 0,
-        remaining: int = 10,
-        pass_threshold: int = 80,
         hitl_context: str = "",
     ) -> tuple[list[dict], dict, str]:
-        
-        user_message = build_evaluator_user_message(
-            proposals=proposals,
-            cuisine_sku_count=cuisine_sku_count,
-            round_num=round_num, 
-            locked_count=locked_count,
-            remaining=remaining,
-            pass_threshold=pass_threshold,
-            hitl_context=hitl_context,
-        )
-        
+
+        user_message = build_evaluator_user_message(proposals, hitl_context)
+
         try:
             messages = [
                 {"role": "system", "content": self.system_prompt},
@@ -112,7 +102,7 @@ class EvaluatorAgent:
                 # The model may have answered before the failure, and re-reading
                 # history costs no API call. Stage 3 is skipped: it re-sends the
                 # same history, so it would only repeat an API failure.
-                print(f"[evaluator] r{round_num}: stage 1 raised "
+                print(f"[evaluator] stage 1 raised "
                       f"{type(e).__name__}: {e}; salvaging from history", flush=True)
                 traceback.print_exc()
                 return self._recover_from_history(messages) or ([], {}, "")
@@ -125,7 +115,7 @@ class EvaluatorAgent:
                 return result
 
             # Stage 3: model finished research without emitting valid JSON
-            print(f"[evaluator] r{round_num}: tool loop empty, "
+            print(f"[evaluator] tool loop empty, "
                   f"forcing no-tools JSON fallback", flush=True)
             result = self._force_final_output(messages)
             return result or ([], {}, "")
@@ -251,43 +241,63 @@ class EvaluatorAgent:
         evaluations: list[dict],
         proposals: list[dict],
     ) -> list[EvaluationResult]:
+        """One result per proposal, in proposal order.
+
+        An evaluation is matched to its proposal by dish name, then by id: the
+        model may reorder or drop dishes, so position is not trusted. The total
+        is computed here from the dimension scores, and a dish stays a
+        candidate (`passed`) unless it was vetoed. Whatever total or verdict
+        the model reported is ignored.
+        """
+        evaluations = [ev for ev in evaluations if isinstance(ev, dict)]
+        by_name = {_match_key(ev.get("name")): ev for ev in evaluations}
+        by_id = {ev.get("id"): ev for ev in evaluations}
+        proposal_ids = [p.get("id") for p in proposals]
+
         results = []
-        for i, ev in enumerate(evaluations):
-            prop_dict = proposals[i] if i < len(proposals) else {
-                "name": ev.get("name", "Unknown"),
-                "cuisine": ev.get("cuisine", "Unknown"),
-                "price_sgd": 0.0,
-                "description": "",
-                "differentiation": "",
-                "trend_source": "",
-            }
+        for prop in proposals:
             proposal = DishProposal(
-                id=ev.get("id", i + 1),
-                name=ev.get("name", prop_dict.get("name", "")),
-                name_cn=prop_dict.get("name_cn", ev.get("name_cn", "")),
-                cuisine=ev.get("cuisine", prop_dict.get("cuisine", "")),
-                price_sgd=prop_dict.get("price_sgd", 0.0),
-                description=prop_dict.get("description", ""),
-                description_cn=prop_dict.get("description_cn", ev.get("description_cn", "")),
-                differentiation=prop_dict.get("differentiation", ""),
-                trend_source=prop_dict.get("trend_source", ""),
-                source_urls=prop_dict.get("source_urls", prop_dict.get("source_refs", [])),
+                id=prop.get("id", 0),
+                name=prop.get("name", ""),
+                name_cn=prop.get("name_cn", ""),
+                cuisine=prop.get("cuisine", ""),
+                price_sgd=prop.get("price_sgd", 0.0),
+                description=prop.get("description", ""),
+                description_cn=prop.get("description_cn", ""),
+                differentiation=prop.get("differentiation", ""),
+                trend_source=prop.get("trend_source", ""),
+                source_urls=prop.get("source_urls", prop.get("source_refs", [])),
             )
 
-            scores = ev.get("scores", {})
-            result = EvaluationResult(
+            ev = by_name.get(_match_key(prop.get("name")))
+            if ev is None and prop.get("id") is not None and proposal_ids.count(prop.get("id")) == 1:
+                ev = by_id.get(prop.get("id"))
+            if ev is None:
+                # Kept visible, but out of the ranking: there is nothing to rank it by.
+                results.append(EvaluationResult(
+                    proposal=proposal,
+                    vetoed=True,
+                    veto_reason=NOT_SCORED_REASON,
+                    trend_heat=0,
+                    hawker_substitutability=0,
+                    total_score=0,
+                    passed=False,
+                    reasoning="",
+                ))
+                continue
+
+            scores = ev.get("scores") if isinstance(ev.get("scores"), dict) else {}
+            vetoed = bool(ev.get("vetoed", False))
+            trend_heat = 0.0 if vetoed else _raw_score(scores, "trend_heat")
+            hawker = 0.0 if vetoed else _raw_score(scores, "hawker_substitutability")
+            results.append(EvaluationResult(
                 proposal=proposal,
-                vetoed=ev.get("vetoed", False),
-                veto_reason=(
-                    ev.get("summary", {}).get("rejection_reasons", [{}])[0].get("reason")
-                    if ev.get("vetoed") else None
-                ),
-                cuisine_blue_ocean=scores.get("cuisine_blue_ocean", {}).get("raw", 0),
-                trend_heat=scores.get("trend_heat", {}).get("raw", 0),
-                hawker_substitutability=scores.get("hawker_substitutability", {}).get("raw", 0),
-                total_score=ev.get("total_score", 0),
-                passed=ev.get("passed", False),
+                vetoed=vetoed,
+                veto_reason=(ev.get("veto_reason") or "Evaluator 否决（未给出理由）") if vetoed else None,
+                trend_heat=trend_heat,
+                hawker_substitutability=hawker,
+                total_score=dish_score(trend_heat, hawker),
+                passed=not vetoed,
                 reasoning=json.dumps(scores, ensure_ascii=False),
-            )
-            results.append(result)
+            ))
         return results

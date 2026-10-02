@@ -13,7 +13,7 @@ these constraints.
 
 ## WORKFLOW
 
-1. Evaluate all proposals: score each on the 3 dimensions.
+1. Evaluate all proposals: score each on the 2 dimensions.
 2. If any proposal name sounds suspicious (unfamiliar, sounds like a mashup, or too generic):
    a. Call `search_web_for_eval(menu="dish name", cuisine="Thai")` to verify.
    b. Based on the search results, decide:
@@ -24,15 +24,17 @@ these constraints.
 ---
 ## SCORING 
 
-Score on 3 dimensions, 0-10 each.
+Score each proposal on 2 dimensions, 0-10 each. Both are about the dish itself.
 
-### Cuisine Blue Ocean (40%): How underserved is this cuisine?
-- 10: 0 current SKUs | 8-9: 1-5 SKUs | 6-7: 6-15 | 2-4: 16-25 | 0-1: 26+
+Give raw scores only. Do NOT add them up, weight them, rank the proposals or
+decide which ones pass: the total and the selection are computed in code. How
+many SKUs the cuisine already has is not your concern either; it decides how
+many dishes are requested, not how good a dish is.
 
-### External Trend Heat (35%): Market signals from search results.
+### External Trend Heat: Market signals from search results.
 - 9-10: Multiple chains promoting | 7-8: Proven staple at chains | 4-6: Niche growing | 1-3: Limited signal
 
-### Hawker Substitutability (25%): REVERSE — lower = higher score.
+### Hawker Substitutability: REVERSE — lower = higher score.
 - 9-10: Impossible to find in hawker centres | 7-8: 1-2 specialty stalls | 4-6: Some stalls | 1-3: Widely available
 
 ---
@@ -41,7 +43,7 @@ Score on 3 dimensions, 0-10 each.
 
 Your ENTIRE response must be a single JSON object. No markdown (no ###, no **, no -), no prose, no explanation, no leading/trailing text. The response must start with `{` and end with `}`.
 
-For EVERY proposal, include `vetoed` and `passed`. If vetoed, ALL numeric scores MUST be 0.
+For EVERY proposal, include `vetoed`, and copy its `id` and `name` exactly as given. If vetoed, ALL numeric scores MUST be 0.
 
 ```json
 {
@@ -59,12 +61,9 @@ For EVERY proposal, include `vetoed` and `passed`. If vetoed, ALL numeric scores
       },
       "vetoed": false,
       "scores": {
-        "cuisine_blue_ocean": {"raw": 10, "weighted": 40.0, "reasoning": "..."},
-        "trend_heat": {"raw": 8, "weighted": 28.0, "reasoning": "..."},
-        "hawker_substitutability": {"raw": 10, "weighted": 25.0, "reasoning": "..."}
-      },
-      "total_score": 93.0,
-      "passed": true
+        "trend_heat": {"raw": 8, "reasoning": "..."},
+        "hawker_substitutability": {"raw": 10, "reasoning": "..."}
+      }
     },
     {
       "id": 2,
@@ -76,12 +75,9 @@ For EVERY proposal, include `vetoed` and `passed`. If vetoed, ALL numeric scores
       "vetoed": true,
       "veto_reason": "物理状态审计失败：冷面不适合60-70°C热食贩卖机",
       "scores": {
-        "cuisine_blue_ocean": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
-        "trend_heat": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
-        "hawker_substitutability": {"raw": 0, "weighted": 0, "reasoning": "VETOED"}
-      },
-      "total_score": 0,
-      "passed": false
+        "trend_heat": {"raw": 0, "reasoning": "VETOED"},
+        "hawker_substitutability": {"raw": 0, "reasoning": "VETOED"}
+      }
     },
     {
       "id": 3,
@@ -97,18 +93,11 @@ For EVERY proposal, include `vetoed` and `passed`. If vetoed, ALL numeric scores
       "vetoed": true,
       "veto_reason": "搜索验证失败：该菜名无法在网络上找到真实存在的证据",
       "scores": {
-        "cuisine_blue_ocean": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
-        "trend_heat": {"raw": 0, "weighted": 0, "reasoning": "VETOED"},
-        "hawker_substitutability": {"raw": 0, "weighted": 0, "reasoning": "VETOED"}
-      },
-      "total_score": 0,
-      "passed": false
+        "trend_heat": {"raw": 0, "reasoning": "VETOED"},
+        "hawker_substitutability": {"raw": 0, "reasoning": "VETOED"}
+      }
     }
   ],
-  "summary": {
-    "total_proposals": 10, "passed": 7, "rejected": 3,
-    "rejection_reasons": [{"id": 5, "name": "...", "reason": "..."}]
-  },
   "improvement_suggestions": "..."
 }
 ```

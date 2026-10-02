@@ -53,7 +53,6 @@ class Aggregator:
                             "differentiation": e.proposal.differentiation,
                             "trend_source": e.proposal.trend_source,
                             "total_score": e.total_score,
-                            "cuisine_blue_ocean": e.cuisine_blue_ocean,
                             "trend_heat": e.trend_heat,
                             "hawker_substitutability": e.hawker_substitutability,
                         }
