@@ -1,0 +1,42 @@
+# Duplicate-check cases: a proposal, the existing SKU names it is compared
+# against, and whether check_duplicates must call it a duplicate.
+#
+#   expect     duplicate | distinct
+#   source     rule | bug   (see guard.yaml)
+#   known_gap  see guard.yaml
+#
+# `existing` uses real names from data/input/current_commodities.csv, so a
+# case stays valid without the enrichment cache.
+#
+# Only clear-cut cases belong here. "Green curry when red curry is already
+# on the menu" is a judgment call for a person, not for this file.
+
+- id: dup-exact-copy
+  proposal: {name: Kimchi Fried Rice, name_cn: 泡菜炒饭}
+  existing: [Kimchi Fried Rice, Kimchi chicken with Rice]
+  expect: duplicate
+  source: rule
+
+- id: dup-reordered-words
+  proposal: {name: Rice with Thai Red Curry Chicken, name_cn: 泰式红咖喱鸡肉饭}
+  existing: [Thai Red Curry Chicken with Rice, Thai Green Curry Smoked Duck]
+  expect: duplicate
+  source: rule
+
+- id: dup-reworded-same-dish
+  proposal: {name: Thai Red Curry Chicken Rice Bowl, name_cn: 泰式红咖喱鸡饭}
+  existing: [Thai Red Curry Chicken with Rice, Thai Green Curry Smoked Duck]
+  expect: duplicate
+  source: rule
+
+- id: distinct-different-dish
+  proposal: {name: Beef Bulgogi Rice Bowl, name_cn: 韩式烤牛肉饭}
+  existing: [Kimchi Fried Rice, Spicy Bulgogi Chicken, Beef Rendang]
+  expect: distinct
+  source: rule
+
+- id: distinct-shared-ingredient
+  proposal: {name: Kimchi Beef Stew with Rice, name_cn: 泡菜牛肉汤饭}
+  existing: [Kimchi Fried Rice, Kimchi chicken with Rice, Indonesian Beef Curry]
+  expect: distinct
+  source: rule

@@ -1,0 +1,203 @@
+# Guard cases: one dish each, and what HardConstraintGuard.precheck must do with it.
+#
+#   expect     veto | pass
+#   rule       for veto cases, the rule family that should fire:
+#              haram | kill | fried | hawker
+#   source     where the case came from:
+#              rule  = written from a stated rule, before looking at any output
+#              bug   = a wrong verdict we actually hit
+#   known_gap  the guard gets this one wrong today, and why. The test then
+#              expects the wrong verdict and fails once it is fixed, so the
+#              line can be deleted.
+#
+# Near-miss cases matter as much as violations: a rule that blocks too much
+# quietly removes good dishes from every run.
+
+# ── haram ────────────────────────────────────────────────────────────────
+- id: haram-pork-broth
+  dish: {name: Tonkotsu Ramen, name_cn: 豚骨拉面, cuisine: Japanese,
+         description: Rich pork bone broth ramen with soft egg}
+  expect: veto
+  rule: haram
+  source: rule
+
+- id: haram-chinese-pork
+  dish: {name: Braised Meat Rice, name_cn: 红烧猪肉饭, cuisine: Chinese,
+         description: Slow braised meat over steamed rice}
+  expect: veto
+  rule: haram
+  source: rule
+
+- id: haram-mirin-glaze
+  dish: {name: Mirin Glazed Salmon Don, name_cn: 味醂照烧三文鱼丼, cuisine: Japanese,
+         description: Grilled salmon glazed with mirin and soy over rice}
+  expect: veto
+  rule: haram
+  source: rule
+
+- id: haram-ham-as-a-word
+  dish: {name: Ham and Cheese Omurice, name_cn: 芝士蛋包饭, cuisine: Japanese,
+         description: Omelette rice filled with ham and melted cheese}
+  expect: veto
+  rule: haram
+  source: rule
+
+- id: haram-bacon
+  # 烟肉 is how bacon is usually written in Singapore, so the Chinese name
+  # does not rescue this one.
+  dish: {name: Bacon Kimchi Fried Rice, name_cn: 烟肉泡菜炒饭, cuisine: Korean,
+         description: Kimchi fried rice topped with crispy bacon bits}
+  expect: veto
+  rule: haram
+  source: bug
+
+- id: haram-english-term-inside-chinese-text
+  dish: {name: Steamed Chicken Rice Bowl, name_cn: 蒸鸡肉饭, cuisine: Japanese,
+         description: Steamed chicken over rice,
+         description_cn: 鸡肉用sake蒸制后盖在米饭上}
+  expect: veto
+  rule: haram
+  source: rule
+
+- id: haram-lardons-plural
+  dish: {name: Chicken Rice Bowl with Lardons, name_cn: 鸡肉饭, cuisine: Mexican,
+         description: Roast chicken over rice finished with crispy lardons}
+  expect: veto
+  rule: haram
+  source: rule
+
+- id: not-haram-hamachi
+  # "ham" is inside "hamachi" (yellowtail, a fish).
+  dish: {name: Hamachi Don, name_cn: 鰤鱼丼, cuisine: Japanese,
+         description: Seared yellowtail over warm rice}
+  expect: pass
+  source: bug
+
+- id: not-haram-hamburg-steak
+  # Japanese hambāgu is a beef patty.
+  dish: {name: Hamburg Steak Don, name_cn: 汉堡排盖饭, cuisine: Japanese,
+         description: Beef hamburg steak with demi-glace over rice}
+  expect: pass
+  source: bug
+
+- id: not-haram-collard-greens
+  # "lard" is inside "collard".
+  dish: {name: Chicken Rice Bowl with Collard Greens, name_cn: 鸡肉羽衣甘蓝饭, cuisine: Mexican,
+         description: Grilled chicken over rice with braised collard greens}
+  expect: pass
+  source: rule
+
+# ── kill: cold or raw dishes do not survive a 60-70°C cabinet ────────────
+- id: kill-cold-soba
+  dish: {name: Cold Soba Noodle Bowl, name_cn: 冷荞麦面, cuisine: Japanese,
+         description: Chilled soba with dipping sauce}
+  expect: veto
+  rule: kill
+  source: rule
+
+- id: kill-sashimi
+  dish: {name: Salmon Sashimi Don, name_cn: 三文鱼刺身丼, cuisine: Japanese,
+         description: Sliced raw salmon over sushi rice}
+  expect: veto
+  rule: kill
+  source: rule
+
+- id: kill-papaya-salad
+  dish: {name: Som Tam Papaya Salad, name_cn: 青木瓜沙拉, cuisine: Thai,
+         description: Shredded green papaya with lime and chili}
+  expect: veto
+  rule: kill
+  source: rule
+
+- id: kill-chilled-salad-with-grilled-meat
+  dish: {name: Thai Grilled Beef Salad, name_cn: 泰式牛肉沙拉, cuisine: Thai,
+         description: Grilled beef slices tossed with herbs and lime, served chilled}
+  expect: veto
+  rule: kill
+  source: rule
+  known_gap: >-
+    "grilled" anywhere in the text exempts a salad, and the cold patterns
+    match "serve chilled" but not "served chilled".
+
+- id: not-kill-warm-salad
+  dish: {name: Warm Roasted Potato Salad Bowl, name_cn: 温烤土豆沙拉碗, cuisine: Korean,
+         description: Warm roasted potatoes with gochujang dressing}
+  expect: pass
+  source: rule
+
+- id: not-kill-frozen-tofu
+  dish: {name: Braised Tofu Rice, name_cn: 红烧冻豆腐饭, cuisine: Chinese,
+         description: Braised tofu and mushrooms over rice}
+  expect: pass
+  source: rule
+
+# ── fried ────────────────────────────────────────────────────────────────
+- id: fried-chicken-katsu
+  dish: {name: Chicken Katsu Curry Rice, name_cn: 咖喱鸡排饭, cuisine: Japanese,
+         description: Breaded chicken cutlet with Japanese curry}
+  expect: veto
+  rule: fried
+  source: rule
+
+- id: fried-korean-fried-chicken
+  dish: {name: Korean Fried Chicken Rice Bowl, name_cn: 韩式炸鸡饭, cuisine: Korean,
+         description: Crispy chicken glazed in gochujang over rice}
+  expect: veto
+  rule: fried
+  source: rule
+
+- id: not-fried-stir-fried-rice
+  # Wok-fried is not deep-fried.
+  dish: {name: Beef Kimchi Fried Rice, name_cn: 牛肉泡菜炒饭, cuisine: Korean,
+         description: Wok-fried rice with kimchi and sliced beef}
+  expect: pass
+  source: rule
+
+- id: not-fried-katsuobushi
+  # "katsu" is inside "katsuobushi" (bonito flakes).
+  dish: {name: Dashi Tofu Rice Bowl, name_cn: 高汤豆腐饭, cuisine: Japanese,
+         description: Simmered tofu over rice topped with katsuobushi}
+  expect: pass
+  source: rule
+  known_gap: Fried words are matched as substrings, so "katsu" fires on "katsuobushi".
+
+# ── hawker staples ───────────────────────────────────────────────────────
+- id: hawker-hainanese-chicken-rice
+  dish: {name: Hainanese Chicken Rice, name_cn: 海南鸡饭, cuisine: Chinese,
+         description: Poached chicken with fragrant rice}
+  expect: veto
+  rule: hawker
+  source: rule
+
+- id: hawker-laksa-any-cuisine
+  dish: {name: Laksa Chicken Rice Bowl, name_cn: 叻沙鸡肉饭, cuisine: Thai,
+         description: Chicken in laksa gravy over rice}
+  expect: veto
+  rule: hawker
+  source: rule
+
+- id: not-hawker-chicken-rice-in-mexican
+  # "chicken rice" only means the hawker dish in SEA and Chinese cuisines.
+  dish: {name: Mole Chicken Rice Bowl, name_cn: 墨西哥巧克力辣酱鸡肉饭, cuisine: Mexican,
+         description: Chicken in mole sauce over rice}
+  expect: pass
+  source: bug
+
+# ── clean dishes that must reach the evaluator ───────────────────────────
+- id: clean-teriyaki-chicken
+  dish: {name: Chicken Teriyaki Rice Bowl, name_cn: 照烧鸡肉饭, cuisine: Japanese,
+         description: Grilled chicken with teriyaki sauce on steamed rice}
+  expect: pass
+  source: rule
+
+- id: clean-miso-cod
+  dish: {name: Miso Glazed Cod Donburi, name_cn: 味噌银鳕鱼饭, cuisine: Japanese,
+         description: Oven baked cod with miso glaze over warm rice}
+  expect: pass
+  source: rule
+
+- id: clean-beef-bulgogi
+  dish: {name: Beef Bulgogi Rice Bowl, name_cn: 韩式烤牛肉饭, cuisine: Korean,
+         description: Marinated grilled beef with vegetables over rice}
+  expect: pass
+  source: rule
