@@ -3,7 +3,8 @@
 #
 #   expect     duplicate | distinct
 #   source     rule | bug   (see guard.yaml)
-#              human = a person rejected the dish as a duplicate in the app
+#              provisional = rejected as a duplicate in the app while the feedback
+#              feature was being tested; not the business side's judgment
 #   known_gap  see guard.yaml
 #
 # `existing` uses real names from data/input/current_commodities.csv, so a
@@ -46,7 +47,7 @@
   proposal: {name: Thai Muslim Beef Rendang Rice Bowl, name_cn: 泰式穆斯林牛肉仁当饭}
   existing: [Beef Rendang, Chicken Rendang Biryani Rice, Indonesian Beef Curry]
   expect: duplicate
-  source: human
+  source: provisional
   known_gap: >-
     The check compares names, and the extra words (Thai, Muslim, Rice Bowl)
     pull the similarity to "Beef Rendang" down to 36%, below the 60% cut-off.

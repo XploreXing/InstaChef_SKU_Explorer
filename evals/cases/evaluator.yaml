@@ -7,25 +7,30 @@
 #                   has judged the dish yet: it still counts for stability,
 #                   but not for agreement.
 #   reason          for a rejected dish, why the person rejected it
-#   source          human   = a rejection recorded in the app (data/feedback)
-#                   history = a dish the pipeline proposed earlier, taken from
-#                             data/logs (two per cuisine)
+#   source          provisional = a rejection recorded in the app (data/feedback)
+#                             while the feedback feature was being built and
+#                             tested, 2026-05-29 to 06-05. A stand-in label,
+#                             not the business side's judgment.
+#                   history     = a dish the pipeline proposed earlier, taken
+#                             from data/logs (two per cuisine)
 #   previous_score  what the evaluator gave the dish back then, under the old
 #                   scoring that added a per-cuisine blue-ocean term. Context
 #                   only, never an expected value, and not comparable with
 #                   today's dish scores.
 #
-# To add a label, a domain expert fills in `label` (and `reason` for a
-# rejection). Accepted dishes are missing so far. Until some are labelled the
-# ranking cannot be checked against people: the script can only report how
-# often a rejected dish would still have been kept.
+# The provisional labels are good for checking that the measuring works. What
+# the scores should agree with is still to come: a domain expert fills in
+# `label` (and `reason` for a rejection) and the entry becomes `source: expert`.
+# Accepted dishes are missing altogether, so the ranking cannot be checked
+# against people yet: the script can only report how often a rejected dish
+# would still have been kept.
 
 cases:
 - id: human-reject-yellow-curry-potato-chickpea-rice-bowl
   label: reject
   reason_code: cost_high
   reason: 原料成本过高
-  source: human
+  source: provisional
   previous_score: 72.5
   dish:
     name: Yellow Curry Potato & Chickpea Rice Bowl
@@ -38,7 +43,7 @@ cases:
   label: reject
   reason_code: too_complex
   reason: 做法太复杂/不适合自动化
-  source: human
+  source: provisional
   previous_score: 79.0
   dish:
     name: Nagoya Hitsumabushi
@@ -51,7 +56,7 @@ cases:
   label: reject
   reason_code: cost_high
   reason: 原料成本过高
-  source: human
+  source: provisional
   previous_score: 78.5
   dish:
     name: Miyazaki Wagyu Beef Bowl
@@ -64,7 +69,7 @@ cases:
   label: reject
   reason_code: cost_high
   reason: 原料成本过高
-  source: human
+  source: provisional
   previous_score: 75.5
   dish:
     name: Shirasu Whitebait Don
@@ -77,7 +82,7 @@ cases:
   label: reject
   reason_code: too_complex
   reason: 做法太复杂/不适合自动化
-  source: human
+  source: provisional
   previous_score: 71.0
   dish:
     name: Kyoto Purple Sweet Potato Don
@@ -91,7 +96,7 @@ cases:
   label: reject
   reason_code: cost_high
   reason: 原料成本过高
-  source: human
+  source: provisional
   previous_score: 74.5
   dish:
     name: Atka Mackerel Teriyaki Bowl
@@ -104,7 +109,7 @@ cases:
   label: reject
   reason_code: cost_high
   reason: 原料成本过高
-  source: human
+  source: provisional
   previous_score: 69.5
   dish:
     name: Hokkaido Scallop Butter Don
@@ -117,7 +122,7 @@ cases:
   label: reject
   reason_code: bad_taste
   reason: 口味不适合新加坡市场
-  source: human
+  source: provisional
   previous_score: 81.0
   dish:
     name: Mexican Lentil Bowl
@@ -130,7 +135,7 @@ cases:
   label: reject
   reason_code: bad_taste
   reason: 口味不适合新加坡市场
-  source: human
+  source: provisional
   previous_score: 87.0
   dish:
     name: Poblano Veggie Bowl
@@ -143,7 +148,7 @@ cases:
   label: reject
   reason_code: duplicate
   reason: 已有类似SKU/重复
-  source: human
+  source: provisional
   previous_score: 83.5
   dish:
     name: Thai Muslim Beef Rendang Rice Bowl
