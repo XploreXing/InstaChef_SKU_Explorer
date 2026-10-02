@@ -85,3 +85,24 @@ def build_feedback_summary(rejections: list[dict], cuisine: str) -> str:
         f"Focus on what worked and what the reviewers preferred.*"
     )
     return "\n".join(lines)
+
+
+def build_evaluator_context(rejections: list[dict], cuisine: str) -> str:
+    """Build the block appended to the Evaluator's user message: the most
+    recent rejections for the given cuisine, each with its reason."""
+    cuisine_rejections = [
+        r for r in rejections if r.get("cuisine") == cuisine
+    ]
+    if not cuisine_rejections:
+        return ""
+
+    lines = [
+        "\n## HITL Feedback: Previously Rejected Proposals",
+        "These dishes were rejected by human experts. Be extra vigilant for similar patterns:\n"
+    ]
+    for r in cuisine_rejections[-10:]:
+        lines.append(
+            f"- 「{r.get('proposal_name_cn', r.get('proposal_name', ''))}」"
+            f"→ {r.get('reason_label', '')}"
+        )
+    return "\n".join(lines)

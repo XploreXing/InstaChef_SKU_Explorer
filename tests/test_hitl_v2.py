@@ -7,6 +7,7 @@ import pytest
 from utils.feedback_loader import (
     _normalize_name,
     build_blacklist,
+    build_evaluator_context,
     build_feedback_summary,
 )
 
@@ -87,3 +88,35 @@ class TestBuildFeedbackSummary:
         summary = build_feedback_summary(rejections, "Japanese")
         assert "Wagyu" in summary
         assert "Mango" not in summary
+
+
+class TestBuildEvaluatorContext:
+    def test_no_rejections_for_the_cuisine_gives_no_block(self):
+        rejections = [{"cuisine": "Mexican", "reason_label": "冷食", "proposal_name": "Mango"}]
+        assert build_evaluator_context(rejections, "Japanese") == ""
+        assert build_evaluator_context([], "Japanese") == ""
+
+    def test_lists_each_rejected_dish_with_its_reason(self):
+        rejections = [
+            {"cuisine": "Japanese", "reason_label": "原料成本过高",
+             "proposal_name": "Miyazaki Wagyu Beef Bowl", "proposal_name_cn": "宫崎和牛丼"},
+            {"cuisine": "Japanese", "reason_label": "做法太复杂/不适合自动化",
+             "proposal_name": "Nagoya Hitsumabushi"},
+            {"cuisine": "Mexican", "reason_label": "冷食", "proposal_name": "Mango Bowl"},
+        ]
+        context = build_evaluator_context(rejections, "Japanese")
+
+        assert "「宫崎和牛丼」→ 原料成本过高" in context
+        # no Chinese name recorded: fall back to the English one
+        assert "「Nagoya Hitsumabushi」→ 做法太复杂/不适合自动化" in context
+        assert "Mango Bowl" not in context
+
+    def test_only_the_ten_most_recent_are_listed(self):
+        rejections = [
+            {"cuisine": "Japanese", "reason_label": "重复", "proposal_name": f"Dish {i:02d}"}
+            for i in range(12)
+        ]
+        context = build_evaluator_context(rejections, "Japanese")
+
+        assert "Dish 01" not in context
+        assert "Dish 02" in context and "Dish 11" in context

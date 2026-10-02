@@ -1,0 +1,79 @@
+# Feedback-loop cases, used by evals/run_feedback.py.
+#
+# The question: once a person has rejected some dishes, does the evaluator's
+# next judgment follow? It gets the rejections below as feedback, then scores
+# dishes it has never seen. A dish that the same reason applies to must be
+# vetoed; an ordinary dish must not be.
+#
+# This checks the plumbing, so it does not matter that the rejections are
+# provisional labels (see evaluator.yaml). What matters is that the evaluator
+# acts on whatever it is told, and only on that.
+#
+#   expect   veto     the reason of a rejected dish applies to this one
+#            keep     no rejection reason applies; it must be scored normally
+#            unclear  reasonable people could go either way; reported, not scored
+#   because  for a veto case, which rejected dish it mirrors
+
+cuisine: Japanese
+
+# What a person rejected, in the shape the app saves it (data/feedback).
+rejections:
+  - {proposal_name: Nagoya Hitsumabushi, proposal_name_cn: 名古屋鳗鱼三吃, cuisine: Japanese, reason_label: 做法太复杂/不适合自动化}
+  - {proposal_name: Miyazaki Wagyu Beef Bowl, proposal_name_cn: 宫崎和牛丼, cuisine: Japanese, reason_label: 原料成本过高}
+  - {proposal_name: Shirasu Whitebait Don, proposal_name_cn: 白鱼干亲子丼, cuisine: Japanese, reason_label: 原料成本过高}
+  - {proposal_name: Kyoto Purple Sweet Potato Don, proposal_name_cn: 京都紫薯丼, cuisine: Japanese, reason_label: 做法太复杂/不适合自动化}
+  - {proposal_name: Atka Mackerel Teriyaki Bowl, proposal_name_cn: 鳕鱼照烧碗, cuisine: Japanese, reason_label: 原料成本过高}
+  - {proposal_name: Hokkaido Scallop Butter Don, proposal_name_cn: 北海道扇贝黄油丼, cuisine: Japanese, reason_label: 原料成本过高}
+
+cases:
+  - id: wagyu-sukiyaki
+    expect: veto
+    because: Miyazaki Wagyu Beef Bowl was rejected for ingredient cost
+    dish: {name: A5 Wagyu Sukiyaki Don, name_cn: A5和牛寿喜烧丼,
+           description: Thin slices of A5 wagyu simmered sukiyaki-style over rice with onsen egg.}
+
+  - id: seared-scallop
+    expect: veto
+    because: Hokkaido Scallop Butter Don was rejected for ingredient cost
+    dish: {name: Seared Hokkaido Scallop Rice Bowl, name_cn: 北海道炙烤扇贝饭,
+           description: Seared Hokkaido scallops with soy butter over steamed rice.}
+
+  - id: kaiseki-bento
+    expect: veto
+    because: Nagoya Hitsumabushi was rejected as too complex to automate
+    dish: {name: Kaiseki Seven-Dish Bento, name_cn: 怀石七品便当,
+           description: "Seven separately prepared seasonal small dishes arranged with rice, each cooked to order."}
+
+  - id: unagi-kabayaki
+    # Eel was in a rejected dish, but that one was rejected for its three-way
+    # serving ritual, not for the eel. Whether plain grilled eel is "costly" is
+    # a judgment call.
+    expect: unclear
+    dish: {name: Grilled Unagi Kabayaki Rice Bowl, name_cn: 蒲烧鳗鱼饭,
+           description: Charcoal-grilled eel glazed with kabayaki sauce over rice.}
+
+  - id: beef-sukiyaki
+    # Ordinary beef: the wagyu rejection was about cost, not about beef.
+    expect: keep
+    dish: {name: Sukiyaki Beef Don, name_cn: 寿喜烧牛肉丼,
+           description: Sliced beef and onion simmered in sweet soy over rice.}
+
+  - id: chicken-curry
+    expect: keep
+    dish: {name: Japanese Chicken Curry Rice, name_cn: 日式咖喱鸡饭,
+           description: "Mild Japanese curry with chicken, potato and carrot over rice."}
+
+  - id: oyakodon
+    expect: keep
+    dish: {name: Oyakodon Chicken and Egg Bowl, name_cn: 亲子丼,
+           description: Chicken and egg simmered in dashi over rice.}
+
+  - id: teriyaki-chicken
+    expect: keep
+    dish: {name: Teriyaki Chicken Don, name_cn: 照烧鸡肉丼,
+           description: Grilled chicken thigh with teriyaki sauce over rice.}
+
+  - id: gyudon
+    expect: keep
+    dish: {name: Gyudon Beef Bowl, name_cn: 牛丼,
+           description: Thinly sliced beef and onion simmered in sweet soy over rice.}

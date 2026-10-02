@@ -170,7 +170,7 @@ class Orchestrator:
                 from pathlib import Path as _Path
                 from utils.feedback_loader import (
                     load_all_rejections, build_blacklist,
-                    build_feedback_summary,
+                    build_feedback_summary, build_evaluator_context,
                 )
                 all_rejections = load_all_rejections(_Path("data/feedback"))
                 blacklist = build_blacklist(all_rejections, cuisine)
@@ -313,21 +313,9 @@ class Orchestrator:
             # Trace: evaluate
             t_eval = time.time()
             # Build HITL RAG context for this cuisine
-            cuisine_rejections = [
-                r for r in all_rejections if r.get("cuisine") == cuisine
-            ]
             hitl_context = ""
-            if cuisine_rejections:
-                lines = [
-                    "\n## HITL Feedback: Previously Rejected Proposals",
-                    "These dishes were rejected by human experts. Be extra vigilant for similar patterns:\n"
-                ]
-                for r in cuisine_rejections[-10:]:
-                    lines.append(
-                        f"- 「{r.get('proposal_name_cn', r.get('proposal_name', ''))}」"
-                        f"→ {r.get('reason_label', '')}"
-                    )
-                hitl_context = "\n".join(lines)
+            if all_rejections:
+                hitl_context = build_evaluator_context(all_rejections, cuisine)
 
             if dup_passed_proposals:
                 with self._eval_lock:
