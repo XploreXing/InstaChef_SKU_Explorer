@@ -142,6 +142,7 @@ class EvaluatorAgent:
                 temperature=self.cfg["evaluator_temperature"],
                 max_tokens=8192,
                 tools=EVALUATOR_TOOL_SCHEMAS,
+                thinking=True,  # scoring is where reasoning before answering pays off
             )
             msg = response.choices[0].message
             finish_reason = response.choices[0].finish_reason
@@ -212,6 +213,7 @@ class EvaluatorAgent:
                     temperature=0,
                     max_tokens=8192,
                     response_format={"type": "json_object"},
+                    thinking=True,
                 )
                 msg = response.choices[0].message
                 fr = response.choices[0].finish_reason

@@ -150,9 +150,11 @@ class _ScriptedClient:
     def __init__(self, script):
         self.script = list(script)
         self.calls = 0
+        self.kwargs: list[dict] = []  # what each chat() call was given
 
     def chat(self, **kwargs):
         self.calls += 1
+        self.kwargs.append(kwargs)
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -226,3 +228,20 @@ def test_evaluate_skips_stage3_when_stage1_api_call_fails():
 
     assert _evaluate(agent) == ([], {}, "")
     assert agent.client.calls == 1
+
+
+def test_tool_loop_asks_the_model_to_think():
+    """Scoring is the one place we want the model to reason before answering."""
+    agent = _make_agent([_router_response(content=_answer())])
+
+    _evaluate(agent)
+
+    assert agent.client.kwargs[0]["thinking"] is True
+
+
+def test_forced_final_output_asks_the_model_to_think():
+    agent = _make_agent([_router_response(content=_answer())])
+
+    agent._force_final_output([{"role": "user", "content": "evaluate"}])
+
+    assert agent.client.kwargs[0]["thinking"] is True

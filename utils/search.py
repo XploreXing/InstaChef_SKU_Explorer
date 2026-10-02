@@ -278,6 +278,7 @@ class FoodTrendSearcher:
                 temperature=0.0,
                 max_tokens=400,
                 response_format={"type": "json_object"},
+                thinking=False,  # reasoning tokens would eat the 400-token budget
             )
             data = _json.loads(resp.choices[0].message.content)
             names = [str(n).strip() for n in data.get("restaurants", []) if n and str(n).strip()]

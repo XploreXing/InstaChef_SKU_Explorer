@@ -598,6 +598,7 @@ Output JSON with feedback and threshold_adjustment (negative = lower, 0 = no cha
                 temperature=0.3,
                 max_tokens=600,
                 response_format={"type": "json_object"},
+                thinking=False,  # reasoning tokens would eat the 600-token budget
             )
             data = _json.loads(response.choices[0].message.content)
             feedback_text = data.get("feedback", "")
@@ -690,6 +691,7 @@ Output JSON:
                 temperature=0.3,
                 max_tokens=500,
                 response_format={"type": "json_object"},
+                thinking=False,  # reasoning tokens would eat the 500-token budget
             )
             data = _json.loads(response.choices[0].message.content)
             return ExecutiveSummary(

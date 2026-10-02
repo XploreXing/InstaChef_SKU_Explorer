@@ -179,3 +179,26 @@ def test_build_queries_includes_site_templates():
     queries = searcher.build_queries("Mexican")
     assert len(queries) >= 2  # general + site query
     assert any("site:stuffd.sg" in q for q in queries)
+
+
+def test_restaurant_extraction_runs_without_thinking():
+    """The extraction call has max_tokens=400. On a model that thinks by
+    default the reasoning uses up that budget and the answer comes back empty."""
+    from unittest.mock import MagicMock
+    from openai.types.chat import ChatCompletionMessage
+    from utils.llm_providers.base import Choice, ModelResponse
+
+    router = MagicMock()
+    router.chat.return_value = ModelResponse(
+        choices=[Choice(message=ChatCompletionMessage(
+            role="assistant", content='{"restaurants": ["Lucha Loco"]}'))],
+        model="test-model", preset_id="test",
+    )
+    searcher = FoodTrendSearcher({"search": {}})
+    searcher._llm_router = router
+
+    names = searcher._llm_extract_restaurant_names(
+        [{"title": "Best tacos", "content": "Lucha Loco on Duxton Hill"}], "Mexican")
+
+    assert names == ["Lucha Loco"]
+    assert router.chat.call_args.kwargs["thinking"] is False

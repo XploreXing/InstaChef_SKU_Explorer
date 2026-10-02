@@ -1,6 +1,11 @@
+from unittest.mock import MagicMock
+
 import pytest
+from openai.types.chat import ChatCompletionMessage
+
 from orchestrator import Orchestrator
-from models import OrchestratorState
+from models import FinalOutput, OrchestratorState
+from utils.llm_providers.base import Choice, ModelResponse
 
 
 def test_orchestrator_init():
@@ -170,3 +175,45 @@ def test_hitl_blacklisted_proposal_is_not_evaluated_or_locked(tmp_path, monkeypa
     assert len(blacklisted) == 1  # one record, not one per veto layer
     assert blacklisted[0].vetoed and "HITL" in blacklisted[0].veto_reason
     assert (round_result.passed_count, round_result.rejected_count) == (1, 1)
+
+
+def _router_returning(content):
+    """A stand-in LLMRouter whose chat() answers `content`, in the response
+    shape the real router returns."""
+    router = MagicMock()
+    router.chat.return_value = ModelResponse(
+        choices=[Choice(message=ChatCompletionMessage(role="assistant", content=content))],
+        model="test-model", preset_id="test",
+    )
+    return router
+
+
+def test_feedback_synthesis_runs_without_thinking():
+    """max_tokens=600 leaves no room for reasoning tokens: on a model that
+    thinks by default the answer came back empty and the rule-based fallback
+    took over without a trace."""
+    orch = Orchestrator.__new__(Orchestrator)
+    orch.config = {"llm": {}, "orchestrator": {"pass_threshold": 80}}
+    orch._summary_router = _router_returning(
+        '{"feedback": "try regional dishes", "threshold_adjustment": -5}')
+
+    feedback, threshold = orch._synthesize_feedback(
+        evaluation_results=[], cuisine="Test", pass_threshold=80,
+        round_num=1, sku_count=5,
+    )
+
+    assert (feedback, threshold) == ("try regional dishes", 75)
+    assert orch._summary_router.chat.call_args.kwargs["thinking"] is False
+
+
+def test_executive_summary_runs_without_thinking():
+    """Same budget problem as feedback synthesis, with max_tokens=500."""
+    orch = Orchestrator.__new__(Orchestrator)
+    orch.config = {"llm": {}}
+    orch._summary_router = _router_returning('{"risk_direction": "watch fried items"}')
+
+    summary = orch._generate_executive_summary(
+        FinalOutput(timestamp="t", cuisines={}, total_elapsed_seconds=0.0))
+
+    assert summary.risk_direction == "watch fried items"
+    assert orch._summary_router.chat.call_args.kwargs["thinking"] is False
