@@ -16,7 +16,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent))
 
 from orchestrator import Orchestrator
-from models import RejectionFeedback
+from models import AdoptionFeedback, RejectionFeedback
 
 REJECTION_REASONS = {
     "cold_food":     ("冷食/不适合60-70°C热柜", "guard_kill"),
@@ -44,6 +44,9 @@ st.set_page_config(
 _PROGRESS_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline_progress.json"
 _OUTPUT_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline_output.json"
 _LOCK_FILE = Path(__file__).resolve().parent / "data" / "runtime" / "pipeline.lock"
+# Human decisions (rejections and adoptions). Relative, like the orchestrator's
+# reader of the same directory.
+_FEEDBACK_DIR = Path("data/feedback")
 
 
 def _read_progress() -> dict | None:
@@ -341,21 +344,81 @@ def _load_output():
     )
 
 
-def _save_feedback(rejections: list[RejectionFeedback], log_dir: Path) -> Path:
-    """Save rejection feedback to a timestamped JSON file."""
-    from dataclasses import asdict
+def _save_records(kind: str, records: list, log_dir: Path) -> Path:
+    """Save human decisions of one kind to <kind>_<timestamp>.json."""
     from datetime import datetime
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir.mkdir(parents=True, exist_ok=True)
-    path = log_dir / f"rejections_{ts}.json"
+    path = log_dir / f"{kind}_{ts}.json"
     with open(path, "w") as f:
         json.dump({
             "timestamp": ts,
-            "count": len(rejections),
-            "rejections": [asdict(r) for r in rejections],
+            "count": len(records),
+            kind: [asdict(r) for r in records],
         }, f, ensure_ascii=False, indent=2)
     return path
+
+
+def _save_feedback(rejections: list[RejectionFeedback], log_dir: Path) -> Path:
+    """Save rejection feedback to a timestamped JSON file."""
+    return _save_records("rejections", rejections, log_dir)
+
+
+def _save_adoptions(adoptions: list[AdoptionFeedback], log_dir: Path) -> Path:
+    """Save adopted dishes to a timestamped JSON file. They live next to the
+    rejections but in their own files, so the HITL blacklist never sees them."""
+    return _save_records("adoptions", adoptions, log_dir)
+
+
+def _dish_snapshot(evaluation) -> dict:
+    """The proposal fields kept with a human decision, so the record can be
+    replayed later as a labelled eval case."""
+    if evaluation is None:
+        return {}
+    return {
+        "description": evaluation.proposal.description,
+        "description_cn": evaluation.proposal.description_cn,
+        "price_sgd": evaluation.proposal.price_sgd,
+        "total_score": evaluation.total_score,
+    }
+
+
+def _record_decisions(pending: list[tuple[str, str, str]], adopted: list,
+                      all_evals: list, log_dir: Path) -> None:
+    """Write one round of human decisions: `pending` rejections as
+    (dish name, reason code, note), and the `adopted` evaluations."""
+    now = pd.Timestamp.now().isoformat(timespec="seconds")
+    by_name = {}
+    for e in all_evals:
+        by_name.setdefault(e.proposal.name, e)
+
+    if pending:
+        rejections = []
+        for name, code, note in pending:
+            eval_item = by_name.get(name)
+            rejections.append(RejectionFeedback(
+                proposal_name=name,
+                proposal_name_cn=eval_item.proposal.name_cn if eval_item else "",
+                cuisine=eval_item.proposal.cuisine if eval_item else "",
+                reason_code=code,
+                reason_label=REJECTION_REASONS[code][0],
+                custom_note=note,
+                timestamp=now,
+                **_dish_snapshot(eval_item),
+            ))
+        _save_feedback(rejections, log_dir)
+    if adopted:
+        _save_adoptions([
+            AdoptionFeedback(
+                proposal_name=e.proposal.name,
+                proposal_name_cn=e.proposal.name_cn,
+                cuisine=e.proposal.cuisine,
+                timestamp=now,
+                **_dish_snapshot(e),
+            )
+            for e in adopted
+        ], log_dir)
 
 
 def _load_all_rejections(log_dir: Path) -> list[dict]:
@@ -407,6 +470,7 @@ def init_session():
         "output": None,
         "adopted": set(),
         "rejected": set(),
+        "adoptions_saved": set(),  # adopted dishes already written to disk
         "pending_rejections": [],
         "rejection_reasons_map": {},  # {dish_name: (reason_code, custom_note)}
     }
@@ -501,6 +565,7 @@ def render_control_panel():
             st.session_state.output = None
             st.session_state.adopted = set()
             st.session_state.rejected = set()
+            st.session_state.adoptions_saved = set()
             st.session_state._run_id = time.time()
             _clear_progress()
 
@@ -863,40 +928,33 @@ def render_export():
         (name, code, note) for name, (code, note) in reason_map.items()
         if code and code in REJECTION_REASONS
     ]
-    if pending:
+    # Adopted dishes are recorded as well: they are the positive labels that
+    # the rejections alone cannot provide.
+    new_adoptions = [
+        e for e in all_evals
+        if e.proposal.name in st.session_state.adopted
+        and e.proposal.name not in st.session_state.adoptions_saved
+    ]
+    if pending or new_adoptions:
         st.subheader("📝 待提交反馈")
-        feedback_df = pd.DataFrame([
-            {
-                "菜品": name,
-                "原因": REJECTION_REASONS[code][0],
-                "备注": note,
-            }
-            for name, code, note in pending
-        ])
-        st.dataframe(feedback_df, hide_index=True)
+        if pending:
+            feedback_df = pd.DataFrame([
+                {
+                    "菜品": name,
+                    "原因": REJECTION_REASONS[code][0],
+                    "备注": note,
+                }
+                for name, code, note in pending
+            ])
+            st.dataframe(feedback_df, hide_index=True)
+        if new_adoptions:
+            st.caption(f"✅ {len(new_adoptions)} 道已采纳的菜会一并记录")
 
-        if st.button("📤 提交反馈", type="primary"):
-            rejections = []
-            for name, code, note in pending:
-                eval_item = None
-                for e in all_evals:
-                    if e.proposal.name == name:
-                        eval_item = e
-                        break
-                rejection = RejectionFeedback(
-                    proposal_name=name,
-                    proposal_name_cn=eval_item.proposal.name_cn if eval_item else "",
-                    cuisine=eval_item.proposal.cuisine if eval_item else "",
-                    reason_code=code,
-                    reason_label=REJECTION_REASONS[code][0],
-                    custom_note=note,
-                )
-                rejections.append(rejection)
-
-            feedback_path = Path("data/feedback")
-            saved = _save_feedback(rejections, feedback_path)
+        if st.button("📤 提交反馈", type="primary", key="submit_feedback"):
+            _record_decisions(pending, new_adoptions, all_evals, _FEEDBACK_DIR)
+            st.session_state.adoptions_saved |= {e.proposal.name for e in new_adoptions}
             st.session_state.rejection_reasons_map = {}
-            st.toast(f"✅ 已提交 {len(rejections)} 条反馈到 {saved.name}")
+            st.toast(f"✅ 已提交 {len(pending)} 条拒绝、{len(new_adoptions)} 条采纳")
             st.rerun()
 
         st.divider()

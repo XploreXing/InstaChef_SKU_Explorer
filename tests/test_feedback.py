@@ -93,3 +93,80 @@ class TestFeedbackPersistence:
         with tempfile.TemporaryDirectory() as tmpdir:
             loaded = _load_all_rejections(Path(tmpdir))
             assert loaded == []
+
+    def test_save_adoptions_keeps_the_dish(self, tmp_path):
+        """An adopted dish is saved with enough of the proposal to be replayed
+        later as a positively labelled eval case."""
+        from app import _save_adoptions
+        from models import AdoptionFeedback
+
+        path = _save_adoptions([
+            AdoptionFeedback(
+                proposal_name="Dish A", proposal_name_cn="菜A", cuisine="Japanese",
+                description="Grilled chicken over rice", description_cn="烤鸡肉饭",
+                price_sgd=8.9, total_score=86.0, timestamp="2026-10-02T10:00:00",
+            ),
+        ], tmp_path)
+
+        saved = json.loads(path.read_text())
+        assert path.name.startswith("adoptions_")
+        assert saved["count"] == 1
+        assert saved["adoptions"][0]["proposal_name"] == "Dish A"
+        assert saved["adoptions"][0]["description"] == "Grilled chicken over rice"
+        # Adoptions must not be picked up as rejections by the HITL loader.
+        assert _load_all_rejections(tmp_path) == []
+
+
+def _locked(name, name_cn, score):
+    from models import DishProposal, EvaluationResult
+
+    return EvaluationResult(
+        proposal=DishProposal(
+            id=1, name=name, name_cn=name_cn, cuisine="Japanese", price_sgd=9.5,
+            description=f"{name} description", description_cn=f"{name_cn}描述",
+            differentiation="", trend_source="",
+        ),
+        vetoed=False, veto_reason=None, cuisine_blue_ocean=8, trend_heat=8,
+        hawker_substitutability=8, total_score=score, passed=True, reasoning="",
+    )
+
+
+def test_recorded_decisions_keep_the_dish_for_both_outcomes(tmp_path):
+    """Submitting feedback saves what was adopted as well as what was
+    rejected, each with the dish itself, so both can become labelled eval
+    cases."""
+    from app import _record_decisions
+
+    dish_a, dish_b = _locked("Dish A", "菜A", 86.0), _locked("Dish B", "菜B", 82.0)
+
+    _record_decisions(
+        pending=[("Dish B", "cost_high", "wagyu is too dear")],
+        adopted=[dish_a],
+        all_evals=[dish_a, dish_b],
+        log_dir=tmp_path,
+    )
+
+    (adoptions_file,) = tmp_path.glob("adoptions_*.json")
+    (adoption,) = json.loads(adoptions_file.read_text())["adoptions"]
+    assert adoption["proposal_name"] == "Dish A"
+    assert adoption["description"] == "Dish A description"
+    assert adoption["total_score"] == 86.0
+    assert adoption["timestamp"]
+
+    (rejection,) = _load_all_rejections(tmp_path)
+    assert rejection["proposal_name"] == "Dish B"
+    assert rejection["reason_code"] == "cost_high"
+    assert rejection["custom_note"] == "wagyu is too dear"
+    assert rejection["description"] == "Dish B description"
+    assert rejection["timestamp"]
+
+
+def test_recording_only_adoptions_writes_no_rejection_file(tmp_path):
+    from app import _record_decisions
+
+    dish_a = _locked("Dish A", "菜A", 86.0)
+
+    _record_decisions(pending=[], adopted=[dish_a], all_evals=[dish_a], log_dir=tmp_path)
+
+    assert len(list(tmp_path.glob("adoptions_*.json"))) == 1
+    assert list(tmp_path.glob("rejections_*.json")) == []

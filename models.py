@@ -110,6 +110,26 @@ class RejectionFeedback:
     reason_label: str
     custom_note: str = ""
     timestamp: str = ""
+    # The dish as it was proposed and scored, so the record can be replayed
+    # later as a labelled eval case.
+    description: str = ""
+    description_cn: str = ""
+    price_sgd: float = 0.0
+    total_score: float = 0.0
+
+
+@dataclass
+class AdoptionFeedback:
+    """Human feedback: a proposal the user adopted. The positive counterpart
+    of RejectionFeedback."""
+    proposal_name: str
+    proposal_name_cn: str
+    cuisine: str
+    description: str = ""
+    description_cn: str = ""
+    price_sgd: float = 0.0
+    total_score: float = 0.0
+    timestamp: str = ""
 
 
 @dataclass
