@@ -136,6 +136,7 @@ class LLMRouter:
             cost_per_1k_input_tokens=p.get("cost_per_1k_input_tokens", 0.0),
             cost_per_1k_output_tokens=p.get("cost_per_1k_output_tokens", 0.0),
             api_key=p.get("api_key", ""),
+            thinking_extra_body=dict(p.get("thinking_extra_body") or {}),
         )
 
     @staticmethod
@@ -176,11 +177,17 @@ class LLMRouter:
         tools: list[dict] | None = None,
         response_format: dict | None = None,
         model: str | None = None,
+        thinking: bool | None = None,
     ) -> ModelResponse:
         """Send a chat request, with fallback across eligible presets.
 
         `model` overrides the preset's role-default model (used by the legacy
         override path where app.py passes a specific model name).
+
+        `thinking` asks the endpoint to think (True) or not (False). It only
+        takes effect on presets that declare `thinking_extra_body`; None leaves
+        the endpoint's default. Reasoning tokens count toward `max_tokens`, so
+        small-budget calls should pass False.
         """
         order = self.strategy.select(self._active_presets(), self.breaker)
         if not order:
@@ -206,6 +213,7 @@ class LLMRouter:
                 max_tokens=max_tokens,
                 tools=tools,
                 response_format=response_format,
+                extra_body=preset.extra_body_for(thinking),
             )
             try:
                 adapter_cls = get_adapter(preset.adapter)

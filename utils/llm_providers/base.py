@@ -87,10 +87,20 @@ class PresetConfig:
     cost_per_1k_input_tokens: float = 0.0
     cost_per_1k_output_tokens: float = 0.0
     api_key: str = ""  # resolved at runtime from api_key_env
+    # Request-body fields this endpoint uses to switch thinking, keyed by
+    # "enabled" / "disabled". Empty = its default cannot be changed.
+    thinking_extra_body: dict[str, dict] = field(default_factory=dict)
 
     def resolve_api_key(self) -> str:
         """Resolve the API key from the explicit value or the env var."""
         return self.api_key or os.getenv(self.api_key_env, "")
+
+    def extra_body_for(self, thinking: bool | None) -> dict | None:
+        """Body fields that switch thinking as asked. None when the caller has
+        no preference or this endpoint declares no switch for it."""
+        if thinking is None:
+            return None
+        return self.thinking_extra_body.get("enabled" if thinking else "disabled")
 
     def model_for(self, role: str) -> str:
         """Return the model name for a given role (generator/evaluator/...)."""
@@ -108,6 +118,7 @@ class LLMRequest:
     max_tokens: int = 4096
     tools: list[dict] | None = None
     response_format: dict | None = None
+    extra_body: dict | None = None  # provider-specific body fields, sent as-is
 
 
 @dataclass

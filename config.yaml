@@ -11,6 +11,12 @@ llm:
   # inference): "openai_compat" = identity transform (SiliconFlow / DeepSeek
   # official / OpenAI / Gemini-OpenAI-shim / ollama / vllm); "anthropic" = needs
   # the AnthropicConfig translation layer.
+  #
+  # thinking_extra_body (optional): the request-body fields this endpoint uses
+  # to switch thinking, sent when a caller passes thinking=True/False. Presets
+  # without it keep the endpoint's default. The official DeepSeek V4 models
+  # think by default and reasoning tokens count toward max_tokens, so a
+  # small-budget call that leaves thinking on comes back with empty content.
   presets:
     - id: deepseek-v4-flash
       label: "DeepSeek V4 Flash (官方)"
@@ -20,6 +26,9 @@ llm:
       models: {generator: "deepseek-v4-flash", evaluator: "deepseek-v4-flash", enrichment: "deepseek-v4-flash"}
       cost_per_1k_input_tokens: 0.0   # 按实际价目填，0 = 不计成本
       cost_per_1k_output_tokens: 0.0
+      thinking_extra_body:
+        enabled: {thinking: {type: enabled}}
+        disabled: {thinking: {type: disabled}}
     - id: deepseek-v4-pro
       label: "DeepSeek V4 Pro (官方)"
       base_url: "https://api.deepseek.com/v1"
@@ -28,6 +37,9 @@ llm:
       models: {generator: "deepseek-v4-pro", evaluator: "deepseek-v4-pro", enrichment: "deepseek-v4-pro"}
       cost_per_1k_input_tokens: 0.0
       cost_per_1k_output_tokens: 0.0
+      thinking_extra_body:
+        enabled: {thinking: {type: enabled}}
+        disabled: {thinking: {type: disabled}}
     - id: siliconflow-deepseek-v4-flash
       label: "DeepSeek V4 Flash (SiliconFlow)"
       base_url: "https://api.siliconflow.cn/v1"

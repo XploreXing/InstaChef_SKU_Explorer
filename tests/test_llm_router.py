@@ -208,6 +208,57 @@ def test_model_override_takes_precedence():
     assert req.model == "custom-model"
 
 
+# ── thinking switch ───────────────────────────────────────────────────────────
+THINKING_PRESET = {
+    "id": "p1", "label": "P1", "base_url": "http://a", "api_key_env": "K1",
+    "adapter": "openai_compat", "models": {"generator": "m1"},
+    "thinking_extra_body": {
+        "enabled": {"thinking": {"type": "enabled"}},
+        "disabled": {"thinking": {"type": "disabled"}},
+    },
+}
+
+
+def _request_sent(preset, **chat_kwargs):
+    """The LLMRequest the router hands to the HTTP handler for one chat call."""
+    handler = MagicMock()
+    handler.chat.return_value = _mock_response()
+    router = LLMRouter(_preset_cfg([preset]), role="generator",
+                       selected_preset_id="p1", handler=handler)
+    router.chat(messages=[{"role": "user", "content": "hi"}],
+                temperature=0, max_tokens=10, **chat_kwargs)
+    return handler.chat.call_args[0][2]
+
+
+@pytest.mark.parametrize("thinking, expected", [
+    (False, {"thinking": {"type": "disabled"}}),
+    (True, {"thinking": {"type": "enabled"}}),
+    (None, None),  # caller has no preference -> endpoint default
+])
+def test_thinking_flag_maps_to_preset_extra_body(thinking, expected):
+    assert _request_sent(THINKING_PRESET, thinking=thinking).extra_body == expected
+
+
+def test_thinking_flag_ignored_when_preset_declares_no_switch():
+    """An endpoint that cannot switch thinking keeps its default."""
+    assert _request_sent(PRESETS[0], thinking=False).extra_body is None
+
+
+@pytest.mark.parametrize("preset_id", ["deepseek-v4-flash", "deepseek-v4-pro"])
+def test_official_deepseek_presets_can_switch_thinking(preset_id):
+    """The official V4 models think by default and reasoning tokens count
+    toward max_tokens, so config.yaml must say how to turn it off."""
+    import yaml
+    from pathlib import Path
+
+    config_path = Path(__file__).resolve().parent.parent / "config.yaml"
+    llm_cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))["llm"]
+    preset = next(p for p in LLMRouter._build_presets(llm_cfg) if p.id == preset_id)
+
+    assert preset.extra_body_for(thinking=False) == {"thinking": {"type": "disabled"}}
+    assert preset.extra_body_for(thinking=True) == {"thinking": {"type": "enabled"}}
+
+
 def test_backward_compat_flat_config():
     """No 'presets' key -> synthesize single preset from flat fields."""
     cfg = {

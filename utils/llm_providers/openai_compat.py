@@ -40,6 +40,8 @@ class OpenAICompatibleConfig:
             kwargs["tools"] = req.tools
         if req.response_format is not None:
             kwargs["response_format"] = req.response_format
+        if req.extra_body:
+            kwargs["extra_body"] = req.extra_body
         return kwargs
 
     def transform_response(

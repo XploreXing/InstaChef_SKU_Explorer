@@ -130,6 +130,18 @@ def test_openai_transform_request_omits_optional_when_none():
     kwargs = cfg.transform_request(req)
     assert "tools" not in kwargs
     assert "response_format" not in kwargs
+    assert "extra_body" not in kwargs
+
+
+def test_openai_transform_request_forwards_extra_body():
+    """Provider-specific body fields (e.g. DeepSeek's thinking switch) pass through."""
+    cfg = OpenAICompatibleConfig()
+    req = LLMRequest(
+        messages=[], model="m", temperature=0, max_tokens=10,
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    kwargs = cfg.transform_request(req)
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 # ── OpenAICompatibleConfig: transform_response normalization ───────────────
@@ -371,3 +383,15 @@ def test_preset_model_for_role():
     assert p.model_for("generator") == "g1"
     assert p.model_for("evaluator") == "e1"
     assert p.model_for("missing") == ""
+
+
+def test_preset_extra_body_for_thinking():
+    p = PresetConfig(
+        id="p", label="P", base_url="x", api_key_env="K", adapter="openai_compat",
+        thinking_extra_body={"disabled": {"thinking": {"type": "disabled"}}},
+    )
+    assert p.extra_body_for(thinking=False) == {"thinking": {"type": "disabled"}}
+    # this endpoint declares no way to force thinking on
+    assert p.extra_body_for(thinking=True) is None
+    # no preference from the caller -> leave the endpoint's default alone
+    assert p.extra_body_for(thinking=None) is None
